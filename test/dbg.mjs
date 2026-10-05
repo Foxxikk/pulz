@@ -1,0 +1,23 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
+page.on('console', (m) => console.log('C', m.type(), m.text().slice(0, 300)));
+page.on('pageerror', (e) => console.log('ERR', String(e)));
+await page.goto('http://127.0.0.1:8123/index.html');
+await page.waitForFunction(() => window.__app, null, { timeout: 30000 });
+const r = await page.evaluate(() => {
+  const app = window.__app;
+  app.renderer.setAnimationLoop(null);
+  const fx = app.fx;
+  const p = app.head.clone().set(0, 1.5, -0.6);
+  fx.burst(p, { r: 1, g: 0.5, b: 0.1 }, { x: 0, y: 0, z: -1 }, 0.7, true, true);
+  fx.update(0.03, app.camera.position);
+  const g = fx.sparks.geometry;
+  app.renderer.render(app.scene, app.camera);
+  const gl = app.renderer.getContext();
+  const info = app.renderer.info;
+  const progs = info.programs.map(p => p.name + ':' + (p.diagnostics ? JSON.stringify(p.diagnostics).slice(0,200) : ''));
+  return { time: fx.time, pi: fx.pi, prm: Array.from(g.attributes.prm.array.slice(0, 8)), ranges: g.attributes.prm.updateRanges, ic: g.instanceCount, glErr: gl.getError(), visible: fx.sparks.visible, progs };
+});
+console.log(JSON.stringify(r, null, 1));
+await browser.close();
