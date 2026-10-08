@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const OUT = '/tmp/claude-0/-home-claude/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots';
+const OUT = '/tmp/claude-0/-home-claude-pulz/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots';
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 page.on('pageerror', (e) => console.log('ERR', String(e)));

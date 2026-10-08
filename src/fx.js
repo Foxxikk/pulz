@@ -133,22 +133,27 @@ export class FX {
 
     // --- úlomky ---
     this.NDEB = 220;
-    this.debris = new THREE.InstancedMesh(
-      new THREE.TetrahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0x1a2030, roughness: 0.4, metalness: 0.5 }),
-      this.NDEB
-    );
+    const shardGeo = new THREE.TetrahedronGeometry(1, 0);
+    this.debris = new THREE.InstancedMesh(shardGeo, new THREE.MeshStandardMaterial({ color: 0x1c2436, roughness: 0.2, metalness: 0.9, envMapIntensity: 1.4 }), this.NDEB);
     this.debris.frustumCulled = false;
+    // zářící střepy (barva ruky)
+    this.glowDebris = new THREE.InstancedMesh(shardGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), this.NDEB);
+    this.glowDebris.frustumCulled = false;
+    this.glowDebris.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.NDEB * 3).fill(1), 3);
+    scene.add(this.glowDebris);
     this.deb = [];
     for (let i = 0; i < this.NDEB; i++) {
-      this.deb.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Euler(), w: new THREE.Vector3(), s: 0, alive: false });
+      this.deb.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Euler(), w: new THREE.Vector3(), s: 0, alive: false, glow: false });
     }
     this.di = 0;
     this._m = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
     this._s = new THREE.Vector3();
     this._zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < this.NDEB; i++) this.debris.setMatrixAt(i, this._zero);
+    for (let i = 0; i < this.NDEB; i++) {
+      this.debris.setMatrixAt(i, this._zero);
+      this.glowDebris.setMatrixAt(i, this._zero);
+    }
     scene.add(this.debris);
 
     // --- plovoucí texty ---
@@ -161,6 +166,8 @@ export class FX {
       wrong: ['DRUHOU RUKOU', '#ff6b6b'],
       dodge: ['ÚHYB', '#ffd36a'],
       ouch: ['AU!', '#ff5a5a'],
+      dir: ['JINÝ SMĚR', '#ffb0b0'],
+      close: ['TĚSNĚ VEDLE', '#ffd0a0'],
     };
     for (const [k, [txt, c]] of Object.entries(defs)) this.labels[k] = textTexture(txt, c).tex;
     this.texts = [];
@@ -174,6 +181,7 @@ export class FX {
       this.texts.push({ mesh, mat, own: tt, t: 0, life: 0, active: false, vy: 0 });
     }
     this.ti = 0;
+    this.splashOn = true;
     this._v = new THREE.Vector3();
     this.camPos = new THREE.Vector3();
   }
@@ -237,11 +245,19 @@ export class FX {
     this.ring(pos, new THREE.Color(1, 1, 1), 0.04, 0.18 + power * 0.06, 0.2, 0.1);
     if (big) this.ring(pos, color, 0.08, 0.42, 0.4, 0.07);
     // úlomky
-    const nd = Math.round((7 + power * 6 + (big ? 4 : 0)) * Math.min(1, d + 0.3));
+    const nd = Math.round((10 + power * 8 + (big ? 5 : 0)) * Math.min(1, d + 0.3));
     for (let i = 0; i < nd; i++) {
-      const o = this.deb[this.di];
+      const idx = this.di;
+      const o = this.deb[idx];
       this.di = (this.di + 1) % this.NDEB;
       o.alive = true;
+      o.glow = Math.random() < 0.4;
+      if (o.glow) {
+        const k = 1.3 + Math.random() * 0.5;
+        this.glowDebris.instanceColor.setXYZ(idx, Math.min(1, color.r * k + 0.1), Math.min(1, color.g * k + 0.1), Math.min(1, color.b * k + 0.1));
+        this.glowDebris.instanceColor.needsUpdate = true;
+        this.debris.setMatrixAt(idx, this._zero);
+      } else this.glowDebris.setMatrixAt(idx, this._zero);
       o.p.copy(pos);
       o.p.x += (Math.random() - 0.5) * 0.12;
       o.p.y += (Math.random() - 0.5) * 0.12;
@@ -249,7 +265,7 @@ export class FX {
       o.v.set((Math.random() - 0.5) * sp + dir.x * 1.8, Math.random() * 2.2 + 0.4 + dir.y * 1.5, (Math.random() - 0.5) * sp + dir.z * 1.8);
       o.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
       o.w.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
-      o.s = 0.012 + Math.random() * 0.02;
+      o.s = 0.014 + Math.random() * 0.022;
     }
   }
 
@@ -368,15 +384,17 @@ export class FX {
       if (o.p.y < WATER_Y) {
         o.alive = false;
         this.debris.setMatrixAt(i, this._zero);
-        if (Math.random() < 0.5) this.splash(o.p, 4);
+        this.glowDebris.setMatrixAt(i, this._zero);
+        if (this.splashOn && Math.random() < 0.5) this.splash(o.p, 4);
         continue;
       }
       q.setFromEuler(o.r);
-      s.set(o.s, o.s * 0.8, o.s * 1.3);
+      s.set(o.s, o.s * 0.28, o.s * 1.7);
       m.compose(o.p, q, s);
-      this.debris.setMatrixAt(i, m);
+      (o.glow ? this.glowDebris : this.debris).setMatrixAt(i, m);
     }
     this.debris.instanceMatrix.needsUpdate = true;
+    this.glowDebris.instanceMatrix.needsUpdate = true;
     for (const o of this.texts) {
       if (!o.active) continue;
       o.t += dt;

@@ -1,6 +1,10 @@
 {
+  "rewrites": [
+    { "source": "/pano/:file", "destination": "https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/:file" }
+  ],
   "headers": [
     { "source": "/vendor/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/pano/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=2592000" }] },
     { "source": "/src/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] }
   ]
 }

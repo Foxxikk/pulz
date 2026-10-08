@@ -1,6 +1,6 @@
 // Snímky: menu (PC), hra v různých okamžicích (kamera bota), pohled z očí (jako ve VR)
 import { chromium } from 'playwright';
-const OUT = process.argv[2] || '/tmp/claude-0/-home-claude/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots';
+const OUT = process.argv[2] || '/tmp/claude-0/-home-claude-pulz/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots';
 const times = JSON.parse(process.argv[3] || '[20.0, 20.12, 31.5, 47.0, 52.3]');
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });

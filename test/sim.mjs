@@ -17,7 +17,7 @@ for (const c of cases) {
     const { TRACKS } = await import('/src/config.js');
     const { Bot } = await import('/src/bot.js');
     const track = TRACKS.find((t) => t.id === c.track);
-    app.settings.diff = c.diff; app.settings.track = c.track; app.settings.power = c.power || 'norm';
+    app.settings.diff = c.diff; app.settings.track = c.track; if (c.sens) { app.settings.sens = { jab: c.sens, hook: c.sens, upper: c.sens }; app.settings.zone = c.sens; }
     app.calibData = { headH: 1.62, cx: 0, cz: 0, reach: 0.6, hitDist: 0.5 };
     const chart = buildChart(track, c.diff, 60 / track.bpm);
     app.game.start(chart, track, c.diff, app.calibData);

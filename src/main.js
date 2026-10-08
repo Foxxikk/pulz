@@ -1,6 +1,6 @@
 // PULZ – hlavní aplikace: renderer, režimy (PC / VR), tok obrazovek, ovládání prstem, smyčka
 import * as THREE from 'three';
-import { TRACKS, DIFFS, POWER, DEFAULT_SETTINGS, COL } from './config.js';
+import { TRACKS, DIFFS, DEFAULT_SETTINGS, COL, ENVS } from './config.js';
 import { Env } from './env.js';
 import { Hands, J } from './hands.js';
 import { TargetPool } from './targets.js';
@@ -18,6 +18,10 @@ const PARAMS = new URLSearchParams(location.search);
 class App {
   constructor() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, store.get('pulz.settings', {}));
+    this.settings.sens = Object.assign({}, DEFAULT_SETTINGS.sens, this.settings.sens || {});
+    if (!ENVS.some((e) => e.id === this.settings.env)) this.settings.env = DEFAULT_SETTINGS.env;
+    this.envStatus = '';
+    this.envReady = false;
     this.records = store.get('pulz.records', {});
     this.mode = 'desktop';
     this.screen = 'menu';
@@ -46,7 +50,7 @@ class App {
     this.yaw = 0;
     this.pitch = -0.12;
 
-    this.env = new Env(this.scene);
+    this.env = new Env(this.scene, r);
     this.hands = new Hands(this.scene);
     this.targets = new TargetPool(this.scene);
     this.fx = new FX(this.scene);
@@ -96,9 +100,27 @@ class App {
     window.addEventListener('resize', () => this.onResize());
     this.showMenu();
     this.warmup();
+    this.loadEnv();
     r.setAnimationLoop((t, frame) => this.loop(frame));
     window.__app = this;
     window.__game = this.game;
+  }
+
+  // načtení prostředí (360° fotka)
+  loadEnv() {
+    const env = ENVS.find((e) => e.id === this.settings.env) || ENVS[0];
+    const token = (this.envToken = (this.envToken || 0) + 1);
+    this.envReady = false;
+    this.envStatus = env.id === 'proc' ? '' : 'Načítám prostředí…';
+    this.env
+      .loadPanorama(env, (k) => {
+        if (token === this.envToken) this.envStatus = k < 0 ? 'Načítám prostředí…' : `Načítám prostředí ${Math.round(k * 100)} %`;
+      })
+      .then((ok) => {
+        if (token !== this.envToken) return;
+        this.envReady = true;
+        this.envStatus = ok ? '' : 'Fotku se nepodařilo načíst – kreslená scéna';
+      });
   }
 
   // předkompilace shaderů (jinak zásek na začátku tréninku)
@@ -129,7 +151,7 @@ class App {
     this.fx.clearTexts();
     this.fx.time += 5; // ať efekty z předehřátí zmizí
     for (const r of this.fx.rings) { r.active = false; r.mesh.visible = false; }
-    for (let i = 0; i < this.fx.NDEB; i++) { this.fx.deb[i].alive = false; this.fx.debris.setMatrixAt(i, this.fx._zero); }
+    for (let i = 0; i < this.fx.NDEB; i++) { this.fx.deb[i].alive = false; this.fx.debris.setMatrixAt(i, this.fx._zero); this.fx.glowDebris.setMatrixAt(i, this.fx._zero); }
   }
 
   // ---------- pomocné ----------
@@ -317,6 +339,43 @@ class App {
     }
   }
 
+  showSettings() {
+    this.screen = 'settings';
+    this.hideAll();
+    const p = this.panels.settings;
+    p.mesh.visible = true;
+    if (this.mode === 'vr') this.placePanel(p, 0.55, -0.28, 0.42);
+    else {
+      p.mesh.position.set(0, 1.42, -0.62);
+      p.mesh.lookAt(this.camera.position);
+    }
+  }
+
+  togglePractice() {
+    if (this.game.practiceMode) {
+      this.stopPractice();
+      if (this.mode === 'vr') this.placePanel(this.panels.settings, 0.55, -0.28, 0.42);
+      else {
+        this.panels.settings.mesh.position.set(0, 1.42, -0.62);
+        this.panels.settings.mesh.lookAt(this.camera.position);
+      }
+      return;
+    }
+    const h = this.head;
+    const c = this.calibData || { headH: this.mode === 'vr' ? h.y : 1.62, cx: this.mode === 'vr' ? h.x : 0, cz: this.mode === 'vr' ? h.z : 0, reach: 0.58, hitDist: 0.46 };
+    this.game.startPractice(c);
+    // panel stranou, ať nepřekáží terčům
+    if (this.mode === 'vr') this.placePanel(this.panels.settings, 0.6, -0.12, 0.15, -0.62);
+    else {
+      this.panels.settings.mesh.position.set(-0.55, 1.42, -0.95);
+      this.panels.settings.mesh.lookAt(this.camera.position);
+    }
+  }
+
+  stopPractice() {
+    if (this.game.practiceMode) this.game.stopPractice();
+  }
+
   // ---------- tok tréninku ----------
   startFlow() {
     const audio = this.ensureAudio();
@@ -377,7 +436,7 @@ class App {
       }
     }
     this.panels.calib.refresh(`${Math.round(c.progress * 40)}|${c.msg}|${Math.round(this.musicProgress * 20)}`);
-    if (!c.need && this.musicProgress >= 1 && this.audio.sfx.hit) {
+    if (!c.need && this.musicProgress >= 1 && this.audio.sfx.hit && this.envReady) {
       c.wait = (c.wait || 0) + dt;
       if (c.wait > 0.4) this.beginPlay();
     }
@@ -494,9 +553,25 @@ class App {
     }, 160);
     if (id.startsWith('track:')) S.track = id.slice(6);
     else if (id.startsWith('diff:')) S.diff = id.slice(5);
-    else if (id === 'power') {
-      const i = POWER.findIndex((x) => x.id === S.power);
-      S.power = POWER[(i + 1) % POWER.length].id;
+    else if (id.startsWith('env:')) {
+      if (S.env !== id.slice(4)) {
+        S.env = id.slice(4);
+        this.loadEnv();
+      }
+    } else if (/^(sj|sh|su|zone):[-+]$/.test(id)) {
+      const [k, op] = id.split(':');
+      const d = op === '+' ? 1 : -1;
+      if (k === 'zone') S.zone = Math.max(1, Math.min(5, S.zone + d));
+      else {
+        const key = { sj: 'jab', sh: 'hook', su: 'upper' }[k];
+        S.sens[key] = Math.max(1, Math.min(5, S.sens[key] + d));
+      }
+    } else if (id === 'fps') S.showFps = !S.showFps;
+    else if (id === 'settings') this.showSettings();
+    else if (id === 'practice') this.togglePractice();
+    else if (id === 'back') {
+      this.stopPractice();
+      this.showMenu();
     } else if (id === 'bar:-') S.barrierDrop = Math.max(0.08, +(S.barrierDrop - 0.02).toFixed(2));
     else if (id === 'bar:+') S.barrierDrop = Math.min(0.35, +(S.barrierDrop + 0.02).toFixed(2));
     else if (id === 'kg:-') S.weight = Math.max(35, S.weight - 5);
@@ -651,6 +726,9 @@ class App {
     if (this.injectHands) this.injectHands(this, t, dt);
     if (!simulated) this.hands.end(now, dt, this.head);
 
+    // střed 360° fotky ve výšce očí
+    this.env.setEyeHeight(this.screen === 'play' && this.calibData ? this.calibData.headH : this.mode === 'vr' ? this.head.y : 1.62);
+
     // obrazovky
     if (this.screen === 'calib') this.updateCalib(dt);
     if (this.mode === 'vr') this.pokePanels(dt);
@@ -674,7 +752,11 @@ class App {
       this.comboPop = Math.max(0, this.comboPop - dt * 2);
       this.panels.combo.mesh.scale.setScalar(1 + this.comboPop * 0.25);
     }
-    if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode);
+    if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode + this.envStatus);
+    if (this.screen === 'settings') {
+      if (this.game.practiceMode) this.game.updatePractice(now, dt, this.hands, this.head);
+      this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode);
+    }
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
     if (this.screen === 'results') this.panels.results.refresh('r' + (this.lastResult ? this.lastResult.score : 0));
 
@@ -685,6 +767,8 @@ class App {
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
     this.env.update(dt);
+    this.targets.update(dt);
+    this.fx.splashOn = this.env.splash;
     this.fx.update(dt, this.head);
     this.renderer.render(this.scene, this.camera);
   }

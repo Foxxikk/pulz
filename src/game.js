@@ -1,6 +1,6 @@
 // Herní logika tréninku: terče letí v rytmu, posuzování zásahů, skóre, combo, bariéry, kalorie
 import * as THREE from 'three';
-import { GEO, JUDGE, COL, POWER, DIFFS } from './config.js';
+import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES } from './config.js';
 import { clamp } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
@@ -41,6 +41,8 @@ export class Game {
     this.duckLog = [];
     this.lastMilestone = 0;
     this.log = []; // pro testy: záznam rozhodnutí
+    if (!this.attempts) this.attempts = [];
+    this.attemptRev = (this.attemptRev || 0) + 1;
   }
 
   start(chart, track, diff, calib) {
@@ -55,9 +57,20 @@ export class Game {
     this.running = true;
   }
 
-  minSpeed() {
-    const p = POWER.find((x) => x.id === this.app.settings.power) || POWER[1];
-    return p.v;
+  sens(type) {
+    const S = this.app.settings;
+    const lv = Math.max(1, Math.min(5, (S.sens && S.sens[type]) || 3));
+    return { lv, ...SENS[lv - 1] };
+  }
+  zone() {
+    const lv = Math.max(1, Math.min(5, this.app.settings.zone || 3));
+    return ZONE[lv - 1];
+  }
+
+  logAttempt(a) {
+    this.attempts.unshift(a);
+    if (this.attempts.length > 8) this.attempts.pop();
+    this.attemptRev++;
   }
 
   // cílová (zásahová) poloha události
@@ -91,6 +104,10 @@ export class Game {
       t1: 0,
       weakShown: false,
       wrongShown: false,
+      dirShown: false,
+      near: 9,
+      nearSpd: 0,
+      practice: false,
       bump: 0,
       vis: null,
       prevZ: -99,
@@ -114,6 +131,7 @@ export class Game {
 
   // poloha v čase t: rychlý přílet, na konci „doplachtí“ (finalFrac rychlosti)
   posAt(it, t, out) {
+    if (it.practice) return out.copy(it.hit).add(_a.set(0, Math.sin(t * 2.2) * 0.012, 0));
     const u = (it.tHit - t) / this.flight;
     const D = GEO.spawnDist;
     const a = GEO.finalFrac;
@@ -143,8 +161,9 @@ export class Game {
     }
   }
 
-  update(t, dt, hands, head) {
+  update(t, dt, hands, head, practice = false) {
     if (!this.running) return;
+    if (this.practiceMode && !practice) return;
     const app = this.app;
     this.t = t;
     // spawn
@@ -156,8 +175,9 @@ export class Game {
       }
       this.spawn(e);
     }
-    const minV = this.minSpeed();
-    const RAD = GEO.targetR + GEO.fistR + GEO.tol;
+    const zone = this.zone();
+    const RAD = GEO.targetR + GEO.fistR + zone.tol;
+    const sq = zone.squash, sqSide = 1 + (zone.squash - 1) * 0.3;
     for (const it of this.items) {
       it.prevPos.copy(it.pos);
       this.posAt(it, t, it.pos);
@@ -171,19 +191,24 @@ export class Game {
               _a.subVectors(h.prevFist, it.prevPos);
               _b.subVectors(h.fist, it.pos);
               // zóna je elipsoid: ve směru úderu užší (rozbije se až při viditelném dotyku), do stran velkorysá
-              if (it.type === 'jab') { _a.z *= 1.8; _b.z *= 1.8; }
-              else if (it.type === 'hook') { _a.x *= 1.25; _b.x *= 1.25; }
-              else { _a.y *= 1.25; _b.y *= 1.25; }
+              if (it.type === 'jab') { _a.z *= sq; _b.z *= sq; }
+              else if (it.type === 'hook') { _a.x *= sqSide; _b.x *= sqSide; }
+              else { _a.y *= sqSide; _b.y *= sqSide; }
               _d.subVectors(_b, _a);
               const dd = _d.lengthSq();
               let s = dd > 1e-10 ? clamp(-_a.dot(_d) / dd, 0, 1) : 1;
               _p.copy(_a).addScaledVector(_d, s);
-              if (_p.length() > RAD) continue;
-              this.contact(it, h, t, minV);
+              const dist = _p.length();
+              if (h.side === it.side && dist - RAD < it.near) {
+                it.near = dist - RAD;
+                it.nearSpd = Math.max(it.nearSpd, h.speed);
+              }
+              if (dist > RAD) continue;
+              this.contact(it, h, t);
               if (it.state !== 'fly') break;
             }
           }
-          if (it.state === 'fly' && t > it.tHit + JUDGE.late) this.miss(it);
+          if (it.state === 'fly' && !it.practice && t > it.tHit + JUDGE.late) this.miss(it);
         }
       } else if (it.state === 'fly') {
         // bariéra prochází rovinou hlavy
@@ -212,25 +237,52 @@ export class Game {
     else if (t >= this.duration + 1.5) app.finish(true);
   }
 
-  contact(it, h, t, minV) {
+  contact(it, h, t) {
     const app = this.app;
     const spd = h.speed;
+    const sens = this.sens(it.type);
+    const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
     if (h.side !== it.side) {
-      if (!it.wrongShown && spd > minV * 0.7) {
+      if (!it.wrongShown && spd > sens.v * 0.7) {
         it.wrongShown = true;
         it.bump = 1;
         app.fx.text('wrong', _v.copy(it.pos).add(_a.set(0, 0.2, 0)));
         app.audio && app.audio.play('wrong', { pan: it.pos.x * 2, gain: 0.7 });
+        this.logAttempt({ nm, spd, res: 'druhá ruka' });
       }
       return;
     }
-    if (spd < minV) {
+    if (spd < sens.v) {
       if (!it.weakShown) {
         it.weakShown = true;
         it.bump = 0.6;
         app.fx.text('weak', _v.copy(it.pos).add(_a.set(0, 0.2, 0)));
         app.audio && app.audio.play('weak', { pan: it.pos.x * 2 });
+        this.logAttempt({ nm, spd, res: 'slabý (min. ' + sens.v.toFixed(1) + ')' });
       }
+      return;
+    }
+    // směr úderu
+    const g = GEO[it.type];
+    _d.copy(h.vel).normalize();
+    const cos = _d.x * g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g.dir[1] + _d.z * g.dir[2];
+    const dirOk = cos >= sens.cos;
+    if (!dirOk && sens.lv === 1) {
+      if (!it.dirShown) {
+        it.dirShown = true;
+        it.bump = 0.6;
+        app.fx.text('dir', _v.copy(it.pos).add(_a.set(0, 0.2, 0)));
+        this.logAttempt({ nm, spd, res: 'špatný směr' });
+      }
+      return;
+    }
+    if (it.practice) {
+      it.state = 'hit';
+      const col = it.side === 'L' ? C_L : C_R;
+      app.fx.burst(it.pos, col, _d, clamp((spd - 2) / 4, 0, 1), true, it.type !== 'jab');
+      app.audio && app.audio.play(it.type !== 'jab' ? 'hitBig' : 'hit', { gain: 0.9 });
+      this.logAttempt({ nm, spd, res: dirOk ? 'zásah' : 'zásah, jiný směr' });
+      this.practiceNext = t + 0.45;
       return;
     }
     // platný zásah
@@ -247,16 +299,11 @@ export class Game {
       q = 'good'; mul = 0.6; label = 'good';
       this.good++;
     }
-    // směr úderu
-    const g = GEO[it.type];
-    _d.copy(h.vel).normalize();
-    const cos = _d.x * g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g.dir[1] + _d.z * g.dir[2];
-    const dirOk = cos >= 0.35;
     const power = clamp((spd - 2) / 4, 0, 1);
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.mult = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
-    const pts = Math.round(100 * mul * (1 + power * 0.5) * (dirOk ? 1 : 0.5) * this.mult);
+    const pts = Math.round(100 * mul * (1 + power * 0.5) * (dirOk ? 1 : 0.6) * this.mult);
     this.score += pts;
     this.hits++;
     this.speedSum += spd;
@@ -266,6 +313,7 @@ export class Game {
     it.state = 'hit';
     it.t1 = t;
     this.log.push({ i: it.e.i, r: q, err, spd, dirOk });
+    this.logAttempt({ nm, spd, res: (dirOk ? '' : 'jiný směr · ') + { perfect: 'perfektní', great: 'skvělé', good: 'dobré' }[q] });
     // efekty
     const col = it.side === 'L' ? C_L : C_R;
     const big = it.type !== 'jab';
@@ -305,6 +353,13 @@ export class Game {
     this.breakCombo();
     this.log.push({ i: it.e.i, r: 'miss' });
     const app = this.app;
+    if (!it.weakShown && !it.wrongShown && !it.dirShown) {
+      const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
+      if (it.near < 0.2) {
+        this.logAttempt({ nm, spd: it.nearSpd, res: 'vedle o ' + Math.max(1, Math.round(it.near * 100)) + ' cm' });
+        app.fx.text('close', _v.copy(it.pos).add(_a.set(0, 0.2, 0)));
+      } else this.logAttempt({ nm, spd: 0, res: 'netrefeno' });
+    }
     app.audio && app.audio.play('miss', { gain: 0.45, pan: (it.pos.x - this.calib.cx) * 2 });
   }
 
@@ -340,24 +395,32 @@ export class Game {
   animate(it, t, dt) {
     const v = it.vis;
     if (!v) return;
+    const tp = this.app.targets;
     if (it.kind === 't') {
       const g = v.g;
       if (it.state === 'fly') {
         g.position.copy(it.pos);
-        const age = t - (it.tHit - this.flight);
+        const age = it.practice ? 1 : t - (it.tHit - this.flight);
         const pop = clamp(age / 0.25, 0, 1);
         it.bump = Math.max(0, it.bump - dt * 5);
         g.scale.setScalar((0.3 + 0.7 * pop) * (1 + it.bump * 0.15));
         if (it.bump > 0) g.position.z -= it.bump * 0.04;
-        v.spin.rotation.z += dt * 0.6;
-        // závorky se svírají k okamžiku úderu
-        const r = it.tHit - t;
-        const sc = GEO.targetR + 0.05 + clamp(r, 0, 1.2) * 0.32;
-        v.brackets.scale.setScalar(sc);
-        v.brackets.rotation.z = clamp(r, 0, 2) * 1.2;
-        v.brMat.opacity = clamp(1.2 - r * 0.6, 0.15, 1) * pop;
-        v.brMat.color.setHex(Math.abs(r) < JUDGE.perfect ? COL.gold : 0xffffff);
-        v.wingMat.opacity = 0.9 * pop;
+        const r = it.practice ? 0.0 : it.tHit - t;
+        tp.animateTarget(v, r, pop, JUDGE.perfect, dt);
+        // svítící ohon za letícím terčem
+        if (!it.practice && r > 0.12) {
+          const c = it.side === 'L' ? C_L : C_R;
+          const sp = (it.pos.z - it.prevPos.z) / Math.max(dt, 1e-3);
+          const n = sp > 3 ? 2 : 1;
+          for (let k = 0; k < n; k++) {
+            const j = 0.05;
+            this.app.fx.emit(
+              it.prevPos.x + (Math.random() - 0.5) * j, it.prevPos.y + (Math.random() - 0.5) * j, it.prevPos.z - 0.04,
+              (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, -0.4,
+              c.r * 0.8 + 0.2, c.g * 0.8 + 0.2, c.b * 0.8 + 0.2, 0.55, 0.28, 0.022 + Math.min(0.03, r * 0.012), 0.5
+            );
+          }
+        }
       } else if (it.state === 'hit') {
         it.state = 'gone';
       } else if (it.state === 'miss') {
@@ -369,6 +432,8 @@ export class Game {
           g.scale.setScalar(1 - k);
           v.brMat.color.setHex(0xff5050);
           v.brMat.opacity = 1 - k;
+          v.ringMat.opacity = 0;
+          v.haloMat.opacity *= 0.9;
         }
       }
     } else {
@@ -378,18 +443,46 @@ export class Game {
       const pop = clamp(age / 0.4, 0, 1);
       g.scale.setScalar(0.9 * pop);
       const r = it.tHit - t;
-      v.mat.opacity = 0.18 + clamp(1 - Math.abs(r) / 1.5, 0, 1) * 0.22;
+      let op = (0.55 + clamp(1 - Math.abs(r) / 1.5, 0, 1) * 0.45) * pop;
       if (it.state === 'passed' || it.state === 'struck') {
-        const k = (t - it.t1) / 0.5;
-        if (it.state === 'struck') {
-          v.mat.color.setHex(0xff4040);
-          v.edgeMat.color.setHex(0xff7070);
-        }
-        v.mat.opacity *= 1 - clamp(k, 0, 1);
-        v.edgeMat.opacity = 0.95 * (1 - clamp(k, 0, 1));
+        const k = clamp((t - it.t1) / 0.5, 0, 1);
+        op *= 1 - k;
         if (k >= 1) it.state = 'gone';
-      } else v.edgeMat.opacity = 0.95 * pop;
+      }
+      tp.barrierLook(v, op, it.state === 'struck');
     }
+  }
+
+  // ---------- zkušební terče (nastavení citlivosti) ----------
+  startPractice(calib) {
+    this.reset();
+    this.events = [];
+    this.next = 0;
+    this.calib = calib;
+    this.flight = 1.9;
+    this.duration = 1e9;
+    this.running = true;
+    this.practiceMode = true;
+    this.practiceIdx = 0;
+    this.practiceNext = 0;
+    this.practiceSeq = [['jab', 'L'], ['jab', 'R'], ['hook', 'L'], ['hook', 'R'], ['upper', 'L'], ['upper', 'R']];
+  }
+  stopPractice() {
+    this.practiceMode = false;
+    this.running = false;
+    for (const it of this.items) this.releaseItem(it);
+    this.items = [];
+  }
+  updatePractice(t, dt, hands, head) {
+    if (!this.practiceMode) return;
+    if (!this.items.some((i) => i.state === 'fly') && t >= this.practiceNext) {
+      const [type, hand] = this.practiceSeq[this.practiceIdx++ % this.practiceSeq.length];
+      const it = this.spawn({ i: -1, kind: 't', type, hand, sx: 0, sy: 0, t: t + 99, low: false });
+      it.practice = true;
+      it.far.set(0, 0, 0);
+    }
+    this.t = t;
+    this.update(t, dt, hands, head, true);
   }
 
   result() {

@@ -117,7 +117,38 @@ export const GEO = {
 
 export const JUDGE = { perfect: 0.06, great: 0.12, late: 0.22 };
 
+// Citlivost úderu (1–5): min. rychlost pěsti (m/s) a tolerance směru (kosinus; -1 = směr se nekontroluje)
+export const SENS = [
+  { name: 'Přísná', v: 1.7, cos: 0.5 },
+  { name: 'Nižší', v: 1.3, cos: 0.35 },
+  { name: 'Střední', v: 0.95, cos: 0.15 },
+  { name: 'Vyšší', v: 0.65, cos: -0.1 },
+  { name: 'Maximální', v: 0.4, cos: -1 },
+];
+// Velikost zóny zásahu (1–5): přídavná tolerance (m) a „zúžení“ ve směru úderu
+export const ZONE = [
+  { name: 'Malá', tol: 0.02, squash: 1.9 },
+  { name: 'Menší', tol: 0.04, squash: 1.6 },
+  { name: 'Střední', tol: 0.06, squash: 1.35 },
+  { name: 'Větší', tol: 0.09, squash: 1.15 },
+  { name: 'Velká', tol: 0.13, squash: 1.0 },
+];
+export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' };
+
+// Prostředí: 360° fotky (Poly Haven, CC0) – načítají se za běhu přes /pano/ (rewrite ve vercel.json)
+export const ENVS = [
+  { id: 'lakeside', name: 'Jezero', desc: 'Slunné jezero s ostrůvkem', yaw: 0 },
+  { id: 'blue_grotto', name: 'Laguna', desc: 'Skály, vodopád, zeleň', yaw: 0 },
+  { id: 'lauter_waterfall', name: 'Potok', desc: 'Lesní potok', yaw: 0 },
+  { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko v zahradě', yaw: 0 },
+  { id: 'radkow_lake', name: 'Hráz', desc: 'Lom a jezero', yaw: 0 },
+  { id: 'proc', name: 'Město', desc: 'Kreslená řeka (bez stahování)', yaw: 0 },
+];
+
 export const DEFAULT_SETTINGS = {
+  env: 'lakeside',
+  sens: { jab: 3, hook: 3, upper: 3 },
+  zone: 3,
   track: 'mesto',
   diff: 'mid',
   power: 'norm',

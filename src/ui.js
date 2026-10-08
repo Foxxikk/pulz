@@ -1,6 +1,6 @@
 // Panely ve VR: 2D canvas → textura na rovině. Tlačítka se zapisují při kreslení, zásah přes UV.
 import * as THREE from 'three';
-import { COL, TRACKS, DIFFS, DIFF_ORDER, POWER } from './config.js';
+import { COL, TRACKS, DIFFS, DIFF_ORDER, SENS, ZONE, ENVS } from './config.js';
 import { drawHexIcon } from './hands.js';
 import { fmtTime, fmtNum } from './util.js';
 
@@ -148,34 +148,88 @@ export function makePanels(app) {
   P.menu = new Panel(1280, 800, 0.84, (g, p) => {
     const S = app.settings;
     glass(g, 1280, 800);
-    logo(g, 52, 34, 96);
-    text(g, 'PULZ', 164, 110, 86, { weight: 900 });
-    text(g, 'Boxuj v rytmu · ovládání jen rukama', 420, 100, 30, { color: 'rgba(255,255,255,0.7)', weight: 500 });
+    logo(g, 52, 30, 84);
+    text(g, 'PULZ', 152, 98, 76, { weight: 900 });
+    text(g, 'Boxuj v rytmu · ovládání jen rukama', 390, 90, 28, { color: 'rgba(255,255,255,0.7)', weight: 500 });
     // trati
     TRACKS.forEach((t, i) => {
-      const x = 52 + i * 398, y = 160;
+      const x = 52 + i * 398, y = 132;
       const on = S.track === t.id;
       const rec = app.records[t.id + ':' + S.diff];
-      p.btn('track:' + t.id, x, y, 378, 210, '', { on });
-      text(g, t.name, x + 26, y + 58, 40, { weight: 800 });
-      text(g, t.desc, x + 26, y + 100, 27, { color: 'rgba(255,255,255,0.72)', weight: 500 });
-      text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))}`, x + 26, y + 146, 28, { color: '#9fd0ff', weight: 700 });
-      text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : 'Zatím bez rekordu', x + 26, y + 186, 25, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.45)', weight: 600 });
+      p.btn('track:' + t.id, x, y, 378, 168, '', { on });
+      text(g, t.name, x + 24, y + 50, 38, { weight: 800 });
+      text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))} · ${t.desc.split(',')[0]}`, x + 24, y + 96, 25, { color: '#9fd0ff', weight: 600 });
+      text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : 'Zatím bez rekordu', x + 24, y + 140, 25, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.45)', weight: 600 });
+    });
+    // prostředí (360° fotky)
+    text(g, 'Prostředí', 52, 340, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
+    const st = app.envStatus;
+    if (st) text(g, st, 1228, 340, 24, { align: 'right', color: '#9fd0ff', weight: 600 });
+    ENVS.forEach((e, i) => {
+      p.btn('env:' + e.id, 52 + i * 197, 354, 188, 82, e.name, { on: S.env === e.id, size: 32 });
     });
     // obtížnost
-    text(g, 'Obtížnost', 52, 428, 28, { color: 'rgba(255,255,255,0.65)', weight: 600 });
+    text(g, 'Obtížnost', 52, 478, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
     DIFF_ORDER.forEach((d, i) => {
-      p.btn('diff:' + d, 52 + i * 262, 446, 246, 104, DIFFS[d].name, { on: S.diff === d, size: 38 });
+      p.btn('diff:' + d, 52 + i * 262, 492, 246, 104, DIFFS[d].name, { on: S.diff === d, size: 38 });
     });
-    p.btn('start', 852, 418, 376, 132, 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot' });
+    p.btn('start', 852, 466, 376, 130, 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot' });
     // nastavení
-    text(g, 'Nastavení', 52, 610, 28, { color: 'rgba(255,255,255,0.65)', weight: 600 });
-    const pw = POWER.find((x) => x.id === S.power);
-    p.btn('power', 52, 628, 290, 120, 'Síla úderu', { sub: pw.name, size: 34 });
-    smallStepper(p, g, 'bar', 362, 628, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
-    smallStepper(p, g, 'kg', 652, 628, 'Váha', `${S.weight} kg`);
-    smallStepper(p, g, 'off', 942, 628, 'Zvuk', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
+    const sn = (k) => S.sens[k];
+    p.btn('settings', 52, 630, 1176, 120, 'Citlivost úderů a nastavení', {
+      size: 38,
+      sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone} · zkušební terče`,
+    });
   }, { interactive: true });
+
+  P.settings = new Panel(1280, 900, 0.84, (g, p) => {
+    const S = app.settings;
+    glass(g, 1280, 900);
+    text(g, 'Citlivost a nastavení', 52, 90, 54, { weight: 900 });
+    text(g, '1 = přísná · 5 = bere skoro každý pohyb', 1228, 86, 24, { align: 'right', color: 'rgba(255,255,255,0.6)', weight: 500 });
+    const lv = (k) => `${S.sens[k]} · ${SENS[S.sens[k] - 1].name}`;
+    const sub = (k) => `od ${SENS[S.sens[k] - 1].v.toFixed(2)} m/s`;
+    bigStepper(p, g, 'sj', 52, 120, 'Direkt', lv('jab'), sub('jab'));
+    bigStepper(p, g, 'sh', 346, 120, 'Hook', lv('hook'), sub('hook'));
+    bigStepper(p, g, 'su', 640, 120, 'Zvedák', lv('upper'), sub('upper'));
+    bigStepper(p, g, 'zone', 934, 120, 'Zóna zásahu', `${S.zone} · ${ZONE[S.zone - 1].name}`, `+${Math.round(ZONE[S.zone - 1].tol * 100)} cm`);
+    smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
+    smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
+    smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
+    p.btn('fps', 934, 286, 286, 120, 'Ukazatel FPS', { on: S.showFps, sub: S.showFps ? 'zapnuto' : 'vypnuto', size: 32 });
+    // poslední údery
+    roundRect(g, 52, 432, 700, 420, 24);
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fill();
+    text(g, 'Poslední údery', 76, 478, 30, { weight: 800 });
+    const at = (app.game.attempts || []).slice(0, 7);
+    if (!at.length) text(g, 'Zapni zkušební terče a zkus pár úderů.', 76, 530, 26, { color: 'rgba(255,255,255,0.55)', weight: 500 });
+    at.forEach((a, i) => {
+      const y = 528 + i * 46;
+      const ok = /zásah|perfekt|skvěl|dobré/.test(a.res);
+      text(g, a.nm, 76, y, 26, { weight: 700 });
+      text(g, a.spd ? `${a.spd.toFixed(1)} m/s` : '–', 330, y, 26, { color: '#9fd0ff', weight: 600 });
+      text(g, a.res, 470, y, 26, { color: ok ? '#7dffb0' : '#ffb08a', weight: 600 });
+    });
+    p.btn('practice', 780, 432, 448, 200, app.game.practiceMode ? 'Vypnout terče' : 'Zkušební terče', {
+      primary: !app.game.practiceMode,
+      size: 40,
+      weight: 900,
+      sub: app.game.practiceMode ? 'běží: direkt, hook, zvedák' : 'stojí před tebou, trefuj',
+    });
+    p.btn('back', 780, 652, 448, 200, 'Zpět do menu', { size: 40, weight: 800 });
+  }, { interactive: true });
+
+  function bigStepper(p, g, id, x, y, label, value, sub) {
+    roundRect(g, x, y, 286, 150, 22);
+    g.fillStyle = 'rgba(255,255,255,0.06)';
+    g.fill();
+    text(g, label, x + 143, y + 44, 30, { align: 'center', weight: 800 });
+    text(g, value, x + 143, y + 90, 26, { align: 'center', color: '#ffd9a8', weight: 700 });
+    text(g, sub, x + 143, y + 128, 22, { align: 'center', color: 'rgba(255,255,255,0.6)', weight: 500 });
+    p.btn(id + ':-', x + 6, y + 50, 58, 92, '−', { size: 48, r: 16 });
+    p.btn(id + ':+', x + 222, y + 50, 58, 92, '+', { size: 48, r: 16 });
+  }
 
   function smallStepper(p, g, id, x, y, label, value) {
     roundRect(g, x, y, 286, 120, 22);
@@ -183,8 +237,8 @@ export function makePanels(app) {
     g.fill();
     text(g, label, x + 143, y + 48, 28, { align: 'center', weight: 700 });
     text(g, value, x + 143, y + 92, 28, { align: 'center', color: 'rgba(255,255,255,0.8)', weight: 600 });
-    p.btn(id + ':-', x + 8, y + 18, 60, 84, '−', { size: 46, r: 16 });
-    p.btn(id + ':+', x + 218, y + 18, 60, 84, '+', { size: 46, r: 16 });
+    p.btn(id + ':-', x + 6, y + 18, 60, 84, '−', { size: 46, r: 16 });
+    p.btn(id + ':+', x + 220, y + 18, 60, 84, '+', { size: 46, r: 16 });
   }
 
   P.calib = new Panel(1024, 420, 0.78, (g) => {
@@ -206,7 +260,8 @@ export function makePanels(app) {
     g.fill();
     const mus = app.musicProgress;
     text(g, c && c.msg ? c.msg : '', 512, 340, 28, { align: 'center', color: '#9fd0ff', weight: 600 });
-    text(g, mus < 1 ? `Ladím hudbu… ${Math.round(mus * 100)} %` : 'Hudba připravena', 512, 384, 24, { align: 'center', color: 'rgba(255,255,255,0.55)', weight: 500 });
+    const envMsg = app.envStatus ? ' · ' + app.envStatus : '';
+    text(g, (mus < 1 ? `Ladím hudbu… ${Math.round(mus * 100)} %` : 'Hudba připravena') + envMsg, 512, 384, 24, { align: 'center', color: 'rgba(255,255,255,0.55)', weight: 500 });
   });
 
   P.big = new Panel(1024, 400, 1.6, (g) => {

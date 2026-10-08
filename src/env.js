@@ -170,24 +170,31 @@ function colored(geo, color, shade = 0) {
 }
 
 export class Env {
-  constructor(scene) {
+  constructor(scene, renderer) {
     this.scene = scene;
+    this.renderer = renderer;
     this.group = new THREE.Group();
     scene.add(this.group);
-    scene.fog = new THREE.Fog(FOG, 45, 340);
+    this.fog = new THREE.Fog(FOG, 45, 340);
+    scene.fog = this.fog;
     scene.background = FOG.clone();
+    this.mode = 'proc';
+    this.panoCache = new Map();
+    this.splash = true;
 
     // světla
-    const hemi = new THREE.HemisphereLight(0xdff4ff, 0x3a6a55, 1.25);
+    const hemi = (this.hemi = new THREE.HemisphereLight(0xdff4ff, 0x3a6a55, 1.25));
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.7);
+    const sun = (this.sun = new THREE.DirectionalLight(0xfff2dd, 1.7));
     sun.position.set(30, 50, -60);
     scene.add(sun);
 
     // obloha
+    const skyTex = skyTexture();
+    this.skyTex = skyTex;
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(450, 48, 24),
-      new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false, depthWrite: false })
+      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false })
     );
     sky.rotation.y = Math.PI * 0.5;
     sky.renderOrder = -10;
@@ -205,6 +212,140 @@ export class Env {
     this.buildSkyline();
     this.buildPlatform();
     this.t = 0;
+
+    // 360° fotka (koule kolem hráče, střed ve výšce očí)
+    const pg = new THREE.SphereGeometry(80, 128, 64);
+    pg.scale(-1, 1, 1);
+    this.pano = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ fog: false, depthWrite: false, toneMapped: false }));
+    this.pano.renderOrder = -10;
+    this.pano.position.y = 1.6;
+    this.pano.visible = false;
+    scene.add(this.pano);
+
+    // odrazy (environment map) z kreslené oblohy
+    try {
+      this.pmrem = new THREE.PMREMGenerator(renderer);
+      this.procEnv = this.pmrem.fromEquirectangular(skyTex).texture;
+      scene.environment = this.procEnv;
+    } catch (e) {
+      this.procEnv = null;
+    }
+  }
+
+  setEyeHeight(h) {
+    this.pano.position.y = h;
+  }
+
+  useProc() {
+    this.mode = 'proc';
+    this.group.visible = true;
+    this.pano.visible = false;
+    this.scene.fog = this.fog;
+    this.scene.environment = this.procEnv;
+    this.hemi.color.setHex(0xdff4ff);
+    this.hemi.groundColor.setHex(0x3a6a55);
+    this.hemi.intensity = 1.25;
+    this.splash = true;
+  }
+
+  // Načte 360° fotku (Poly Haven, CC0). Vrací true/false. onProgress(0..1 nebo -1 = neznámé)
+  async loadPanorama(env, onProgress) {
+    if (!env || env.id === 'proc') {
+      this.useProc();
+      return true;
+    }
+    let entry = this.panoCache.get(env.id);
+    if (!entry) {
+      const urls = ['/pano/' + env.id + '.jpg', 'https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/' + env.id + '.jpg'];
+      let blob = null;
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const total = +res.headers.get('content-length') || 0;
+          if (res.body && res.body.getReader) {
+            const reader = res.body.getReader();
+            const chunks = [];
+            let got = 0;
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              got += value.length;
+              if (onProgress) onProgress(total ? Math.min(0.95, got / total) : -1);
+            }
+            blob = new Blob(chunks, { type: 'image/jpeg' });
+          } else blob = await res.blob();
+          if (blob.size < 10000) throw new Error('malý soubor');
+          break;
+        } catch (e) {
+          console.warn('Panorama', url, e.message);
+          blob = null;
+        }
+      }
+      if (!blob) {
+        this.useProc();
+        return false;
+      }
+      try {
+        const max = Math.min(8192, this.renderer.capabilities.maxTextureSize || 4096);
+        const opts = { imageOrientation: 'flipY' };
+        if (max < 8192) Object.assign(opts, { resizeWidth: max, resizeHeight: max / 2, resizeQuality: 'high' });
+        const bmp = await createImageBitmap(blob, opts);
+        const tex = new THREE.Texture(bmp);
+        tex.flipY = false;
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.needsUpdate = true;
+        // malá kopie: odrazy + barvy světla
+        const small = await createImageBitmap(blob, { imageOrientation: 'flipY', resizeWidth: 1024, resizeHeight: 512, resizeQuality: 'medium' });
+        const st = new THREE.Texture(small);
+        st.flipY = false;
+        st.colorSpace = THREE.SRGBColorSpace;
+        st.mapping = THREE.EquirectangularReflectionMapping;
+        st.needsUpdate = true;
+        const envMap = this.pmrem ? this.pmrem.fromEquirectangular(st).texture : null;
+        // průměrné barvy horní a dolní poloviny (bitmapa je převrácená: řádek 0 = spodek)
+        const cv = document.createElement('canvas');
+        cv.width = 32;
+        cv.height = 16;
+        const g = cv.getContext('2d');
+        g.drawImage(small, 0, 0, 32, 16);
+        const px = g.getImageData(0, 0, 32, 16).data;
+        const avg = (y0, y1) => {
+          let r = 0, gg = 0, b = 0, n = 0;
+          for (let y = y0; y < y1; y++)
+            for (let x = 0; x < 32; x++) {
+              const i = (y * 32 + x) * 4;
+              r += px[i]; gg += px[i + 1]; b += px[i + 2]; n++;
+            }
+          return new THREE.Color(r / n / 255, gg / n / 255, b / n / 255);
+        };
+        const bottom = avg(0, 7), top = avg(9, 16);
+        entry = { tex, envMap, top, bottom };
+        this.panoCache.set(env.id, entry);
+      } catch (e) {
+        console.warn('Panorama dekódování', e);
+        this.useProc();
+        return false;
+      }
+    }
+    if (onProgress) onProgress(1);
+    this.mode = 'pano';
+    this.pano.material.map = entry.tex;
+    this.pano.material.needsUpdate = true;
+    this.pano.rotation.y = env.yaw || 0;
+    this.pano.visible = true;
+    this.group.visible = false;
+    this.scene.fog = null;
+    if (entry.envMap) this.scene.environment = entry.envMap;
+    this.hemi.color.copy(entry.top).lerp(new THREE.Color(1, 1, 1), 0.35);
+    this.hemi.groundColor.copy(entry.bottom);
+    this.hemi.intensity = 1.1;
+    this.splash = false;
+    return true;
   }
 
   buildBanks() {
@@ -368,7 +509,7 @@ export class Env {
 
   update(dt) {
     this.t += dt;
-    this.water.material.uniforms.uT.value = this.t;
+    if (this.mode === 'proc') this.water.material.uniforms.uT.value = this.t;
     // plošina se jen nepatrně houpe (kamera ne)
     this.platform.position.y = Math.sin(this.t * 1.1) * 0.006;
     this.platform.rotation.z = Math.sin(this.t * 0.8) * 0.004;

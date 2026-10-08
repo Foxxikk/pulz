@@ -24,11 +24,11 @@ const tp2 = await page.evaluate(() => window.__app.game.t);
 await page.keyboard.press('Space');
 await page.waitForTimeout(3000);
 console.log('pause', tp, 'frozen', tp2 === tp[1], 'after', await page.evaluate(() => [window.__app.screen, +window.__app.game.t.toFixed(2)]));
-await page.screenshot({ path: '/tmp/claude-0/-home-claude/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots/live.png' });
+await page.screenshot({ path: '/tmp/claude-0/-home-claude-pulz/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots/live.png' });
 // ukončit přes menu pauzy
 await page.evaluate(() => { const a = window.__app; a.pause(); a.press(a.panels.pause, 'quit'); });
 await page.waitForTimeout(500);
 console.log('end', await page.evaluate(() => [window.__app.screen, JSON.stringify(window.__app.lastResult).slice(0, 200)]));
-await page.screenshot({ path: '/tmp/claude-0/-home-claude/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots/results.png' });
+await page.screenshot({ path: '/tmp/claude-0/-home-claude-pulz/bc7fd394-8c22-5c33-960d-95a1a7172d61/scratchpad/shots/results.png' });
 console.log('errors', errors);
 await browser.close();
