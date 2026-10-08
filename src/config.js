@@ -138,10 +138,10 @@ export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' };
 // Prostředí: 360° fotky (Poly Haven, CC0) – načítají se za běhu přes /pano/ (rewrite ve vercel.json)
 export const ENVS = [
   { id: 'lakeside', name: 'Jezero', desc: 'Slunné jezero s ostrůvkem', yaw: 0 },
-  { id: 'blue_grotto', name: 'Laguna', desc: 'Skály, vodopád, zeleň', yaw: 0 },
+  { id: 'blue_grotto', name: 'Laguna', desc: 'Skály, vodopád, zeleň', yaw: Math.PI },
   { id: 'lauter_waterfall', name: 'Potok', desc: 'Lesní potok', yaw: 0 },
-  { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko v zahradě', yaw: 0 },
-  { id: 'radkow_lake', name: 'Hráz', desc: 'Lom a jezero', yaw: 0 },
+  { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko s pagodou', yaw: -Math.PI / 2 },
+  { id: 'radkow_lake', name: 'Pláž', desc: 'Klidné jezero s horami', yaw: 0 },
   { id: 'proc', name: 'Město', desc: 'Kreslená řeka (bez stahování)', yaw: 0 },
 ];
 
