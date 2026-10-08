@@ -20,6 +20,8 @@
   #btn-vr{background:linear-gradient(135deg,#ff9a2e,#ff6a2b)}
   #btn-vr:disabled{opacity:.4;cursor:not-allowed}
   #btn-demo{background:rgba(255,255,255,.14)}
+  .sec{background:rgba(61,143,255,.28)}
+  #custom-status{font-size:14px;color:#9fd0ff;flex-basis:100%;max-width:720px}
   #note{font-size:14px;opacity:.75;flex-basis:100%;max-width:720px}
   #fps{position:fixed;right:12px;bottom:10px;font-size:12px;opacity:.6}
 </style>
@@ -30,7 +32,12 @@
   <div class="brand"><span>PULZ</span></div>
   <button id="btn-vr">Vstoupit do VR</button>
   <button id="btn-demo">Ukázka na PC</button>
-  <div id="note">Nasaď Quest 3, odlož ovladače a boxuj rukama. Na PC můžeš tažením myši rozhlížet a klikat na panel.</div>
+  <button id="btn-song" class="sec">Nahrát skladbu (MP3)</button>
+  <button id="btn-video" class="sec">Nahrát 360° video</button>
+  <input id="file-song" type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav" hidden>
+  <input id="file-video" type="file" accept="video/*,.mp4,.webm" hidden>
+  <div id="custom-status"></div>
+  <div id="note">Nasaď Quest 3, odlož ovladače a boxuj rukama. Vlastní skladbu (MP3) nebo 360° video nahraj ještě před vstupem do VR – zůstanou uložené jen v tomto zařízení.</div>
 </div>
 <div id="fps"></div>
 <script type="importmap">

@@ -417,23 +417,22 @@ export class Game {
             this.app.fx.emit(
               it.prevPos.x + (Math.random() - 0.5) * j, it.prevPos.y + (Math.random() - 0.5) * j, it.prevPos.z - 0.04,
               (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, -0.4,
-              c.r * 0.8 + 0.2, c.g * 0.8 + 0.2, c.b * 0.8 + 0.2, 0.55, 0.28, 0.022 + Math.min(0.03, r * 0.012), 0.5
+              c.r * 0.7 + 0.3, c.g * 0.7 + 0.3, c.b * 0.7 + 0.3, 0.4, 0.22, 0.012 + Math.min(0.02, r * 0.008), 0.5
             );
           }
         }
       } else if (it.state === 'hit') {
         it.state = 'gone';
       } else if (it.state === 'miss') {
-        const k = (t - it.t1) / 0.35;
+        const k = (t - it.t1) / 0.45;
         if (k >= 1) it.state = 'gone';
         else {
+          // minutý krystal zhasne a propadne se
           g.position.copy(it.pos);
-          g.position.y -= k * k * 0.5;
-          g.scale.setScalar(1 - k);
-          v.brMat.color.setHex(0xff5050);
-          v.brMat.opacity = 1 - k;
-          v.ringMat.opacity = 0;
-          v.haloMat.opacity *= 0.9;
+          g.position.y -= k * k * 0.6;
+          g.scale.setScalar(1 - k * 0.7);
+          v.glow.material.opacity = 0.3 * (1 - k);
+          tp.animateTarget(v, -1, 1, 0, dt);
         }
       }
     } else {

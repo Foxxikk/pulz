@@ -21,6 +21,12 @@ export class AudioSys {
     this.sfxBus = c.createGain();
     this.sfxBus.gain.value = 0.9;
     this.sfxBus.connect(this.master);
+    this.ambBus = c.createGain();
+    this.ambBus.gain.value = 0;
+    this.ambBus.connect(this.master);
+    this.amb = [];
+    this.ambLevel = 0.6;
+    this.ambDuck = 1;
     this.noise = makeNoise(c, 2);
     this.loops = new Map(); // klíč trackId:typ -> AudioBuffer
     this.sfx = {};
@@ -31,6 +37,56 @@ export class AudioSys {
 
   resume() {
     if (this.ctx.state !== 'running') this.ctx.resume();
+  }
+
+  // ---------- ZVUKY PROSTŘEDÍ (streamované nahrávky, smyčka) ----------
+  setAmbient(layers) {
+    for (const a of this.amb) {
+      try { a.el.pause(); a.node.disconnect(); } catch (e) {}
+      a.el.removeAttribute('src');
+    }
+    this.amb = [];
+    for (const l of layers || []) {
+      const el = new Audio();
+      el.crossOrigin = 'anonymous';
+      el.loop = true;
+      el.preload = 'auto';
+      el.src = l.url;
+      const g = this.ctx.createGain();
+      g.gain.value = l.gain;
+      let node;
+      try {
+        node = this.ctx.createMediaElementSource(el);
+        node.connect(g).connect(this.ambBus);
+      } catch (e) {
+        continue;
+      }
+      // každá vrstva začne jinde, ať se smyčky nepotkávají
+      el.addEventListener('loadedmetadata', () => {
+        if (el.duration > 20) el.currentTime = Math.random() * (el.duration - 10);
+      });
+      el.play().catch(() => {});
+      this.amb.push({ el, node: g });
+    }
+    this.applyAmbient(0.8);
+  }
+  setAmbientLevel(x) {
+    this.ambLevel = x;
+    this.applyAmbient(0.3);
+  }
+  duckAmbient(on) {
+    this.ambDuck = on ? 0.45 : 1;
+    this.applyAmbient(1.5);
+  }
+  applyAmbient(t) {
+    const g = this.ambBus.gain;
+    const now = this.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(this.ambLevel * this.ambDuck, now + t);
+  }
+  resumeAmbient() {
+    for (const a of this.amb) if (a.el.paused) a.el.play().catch(() => {});
   }
 
   // ---------- HUDBA ----------
@@ -212,9 +268,29 @@ export class AudioSys {
     return at;
   }
 
+  // vlastní skladba (celý AudioBuffer)
+  startBuffer(buffer, when) {
+    this.stopSong();
+    const c = this.ctx;
+    const gain = c.createGain();
+    gain.gain.value = 0.95;
+    gain.connect(this.musicBus);
+    this.song = { kind: 'buffer', buffer, startAt: when, segs: [], next: 0, gain, sources: [], duration: buffer.duration, paused: false, est: 0 };
+    this.playBufferFrom(0, when);
+    return buffer.duration;
+  }
+  playBufferFrom(offset, when) {
+    const s = this.song;
+    const src = this.ctx.createBufferSource();
+    src.buffer = s.buffer;
+    src.connect(s.gain);
+    src.start(when, Math.max(0, offset));
+    s.sources = [src];
+  }
+
   schedule() {
     const s = this.song;
-    if (!s || s.paused) return;
+    if (!s || s.paused || s.kind === 'buffer') return;
     const c = this.ctx;
     while (s.next < s.segs.length && s.startAt + s.segs[s.next].at < c.currentTime + 1.5) {
       const seg = s.segs[s.next];
@@ -268,6 +344,12 @@ export class AudioSys {
     if (!s || !s.paused) return;
     const c = this.ctx;
     s.startAt = c.currentTime + lead - s.pausedAt;
+    if (s.kind === 'buffer') {
+      s.paused = false;
+      s.init = false;
+      this.playBufferFrom(s.pausedAt, c.currentTime + lead);
+      return;
+    }
     let k = 0;
     for (let i = 0; i < s.segs.length; i++) if (s.segs[i].at <= s.pausedAt + 1e-6) k = i;
     s.next = k;

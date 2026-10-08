@@ -134,7 +134,9 @@ export class FX {
     // --- úlomky ---
     this.NDEB = 220;
     const shardGeo = new THREE.TetrahedronGeometry(1, 0);
-    this.debris = new THREE.InstancedMesh(shardGeo, new THREE.MeshStandardMaterial({ color: 0x1c2436, roughness: 0.2, metalness: 0.9, envMapIntensity: 1.4 }), this.NDEB);
+    // střepy krystalu (barva podle ruky, fasetované, odráží okolí)
+    this.debris = new THREE.InstancedMesh(shardGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.08, metalness: 0.45, flatShading: true, envMapIntensity: 2.4, emissive: 0x2a2a2a }), this.NDEB);
+    this.debris.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.NDEB * 3).fill(0.5), 3);
     this.debris.frustumCulled = false;
     // zářící střepy (barva ruky)
     this.glowDebris = new THREE.InstancedMesh(shardGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), this.NDEB);
@@ -182,6 +184,10 @@ export class FX {
     }
     this.ti = 0;
     this.splashOn = true;
+    this.flashT = 0;
+    // záblesk světla při zásahu (osvítí rukavice a střepy)
+    this.light = new THREE.PointLight(0xffffff, 0, 1.6, 2);
+    scene.add(this.light);
     this._v = new THREE.Vector3();
     this.camPos = new THREE.Vector3();
   }
@@ -240,12 +246,11 @@ export class FX {
     // záblesk
     this.emit(pos.x, pos.y, pos.z, 0, 0, 0, 1, 1, 0.95, 0.9, 0.08, 0.07 + power * 0.03, 0);
     this.emit(pos.x, pos.y, pos.z, 0, 0, 0, color.r, color.g, color.b, 0.55, 0.16, 0.12, 0);
-    // kruhy
-    this.ring(pos, gold ? new THREE.Color(1, 0.8, 0.3) : color, 0.05, 0.26 + power * 0.1, 0.3, 0.16);
-    this.ring(pos, new THREE.Color(1, 1, 1), 0.04, 0.18 + power * 0.06, 0.2, 0.1);
-    if (big) this.ring(pos, color, 0.08, 0.42, 0.4, 0.07);
+    this.flashAt = pos;
+    this.flashColor = color;
+    this.flashT = 1;
     // úlomky
-    const nd = Math.round((10 + power * 8 + (big ? 5 : 0)) * Math.min(1, d + 0.3));
+    const nd = Math.round((18 + power * 10 + (big ? 6 : 0)) * Math.min(1, d + 0.3));
     for (let i = 0; i < nd; i++) {
       const idx = this.di;
       const o = this.deb[idx];
@@ -257,15 +262,22 @@ export class FX {
         this.glowDebris.instanceColor.setXYZ(idx, Math.min(1, color.r * k + 0.1), Math.min(1, color.g * k + 0.1), Math.min(1, color.b * k + 0.1));
         this.glowDebris.instanceColor.needsUpdate = true;
         this.debris.setMatrixAt(idx, this._zero);
-      } else this.glowDebris.setMatrixAt(idx, this._zero);
-      o.p.copy(pos);
-      o.p.x += (Math.random() - 0.5) * 0.12;
-      o.p.y += (Math.random() - 0.5) * 0.12;
-      const sp = 1.2 + Math.random() * 2.5;
-      o.v.set((Math.random() - 0.5) * sp + dir.x * 1.8, Math.random() * 2.2 + 0.4 + dir.y * 1.5, (Math.random() - 0.5) * sp + dir.z * 1.8);
+      } else {
+        this.glowDebris.setMatrixAt(idx, this._zero);
+        const k = 0.75 + Math.random() * 0.35;
+        this.debris.instanceColor.setXYZ(idx, Math.min(1, color.r * k + 0.1), Math.min(1, color.g * k + 0.1), Math.min(1, color.b * k + 0.12));
+        this.debris.instanceColor.needsUpdate = true;
+      }
+      // kusy vylétají z povrchu krystalu ven + ve směru úderu
+      let ux = Math.random() * 2 - 1, uy = Math.random() * 2 - 1, uz = Math.random() * 2 - 1;
+      const ul = Math.hypot(ux, uy, uz) || 1;
+      ux /= ul; uy /= ul; uz /= ul;
+      o.p.set(pos.x + ux * 0.08, pos.y + uy * 0.08, pos.z + uz * 0.08);
+      const sp = 1.0 + Math.random() * 2.2;
+      o.v.set(ux * sp + dir.x * 2.2, uy * sp + 0.8 + dir.y * 1.8, uz * sp + dir.z * 2.2);
       o.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
       o.w.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
-      o.s = 0.014 + Math.random() * 0.022;
+      o.s = (o.glow ? 0.01 : 0.022) + Math.random() * (o.glow ? 0.014 : 0.03);
     }
   }
 
@@ -343,6 +355,12 @@ export class FX {
 
   update(dt, camPos) {
     this.time += dt;
+    if (this.flashT > 0) {
+      this.flashT = Math.max(0, this.flashT - dt * 7);
+      this.light.position.copy(this.flashAt);
+      this.light.color.copy(this.flashColor).lerp(new THREE.Color(1, 1, 1), 0.4);
+      this.light.intensity = this.flashT * 6;
+    } else this.light.intensity = 0;
     this.camPos.copy(camPos);
     this.sparkMat.uniforms.uTime.value = this.time;
     if (this.dirtyHi >= 0) {
@@ -389,7 +407,7 @@ export class FX {
         continue;
       }
       q.setFromEuler(o.r);
-      s.set(o.s, o.s * 0.28, o.s * 1.7);
+      s.set(o.s, o.s * (o.glow ? 0.3 : 0.75), o.s * 1.4);
       m.compose(o.p, q, s);
       (o.glow ? this.glowDebris : this.debris).setMatrixAt(i, m);
     }

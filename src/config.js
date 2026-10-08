@@ -136,19 +136,27 @@ export const ZONE = [
 export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' };
 
 // Prostředí: 360° fotky (Poly Haven, CC0) – načítají se za běhu přes /pano/ (rewrite ve vercel.json)
+// Zvuky přírody: Wikimedia Commons – „Forest lawn creek“ (Dsw, volné dílo), „Vojníkov, 3. jez“ (Juandev, volné dílo),
+// „Erithacus rubecula XC470227“ (Marie-Lan Taÿ Pamart, CC BY-SA 4.0). Cesty: /amb/ → upload.wikimedia.org (rewrite)
+export const AMB = {
+  creek: '/amb/9/9e/Forest_lawn_creek.ogg',
+  weir: '/amb/2/2f/Vojn%C3%ADkov%2C_3._jez%2C_st%C5%99eda.ogg',
+  birds: '/amb/6/66/Erithacus_rubecula_-_European_Robin_XC470227.mp3',
+};
 export const ENVS = [
-  { id: 'lakeside', name: 'Jezero', desc: 'Slunné jezero s ostrůvkem', yaw: 0 },
-  { id: 'blue_grotto', name: 'Laguna', desc: 'Skály, vodopád, zeleň', yaw: Math.PI },
-  { id: 'lauter_waterfall', name: 'Potok', desc: 'Lesní potok', yaw: 0 },
-  { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko s pagodou', yaw: -Math.PI / 2 },
-  { id: 'radkow_lake', name: 'Pláž', desc: 'Klidné jezero s horami', yaw: 0 },
-  { id: 'proc', name: 'Město', desc: 'Kreslená řeka (bez stahování)', yaw: 0 },
+  { id: 'lakeside', name: 'Jezero', desc: 'Slunné jezero s ostrůvkem', yaw: 0, amb: [['creek', 0.35], ['birds', 0.25]] },
+  { id: 'blue_grotto', name: 'Laguna', desc: 'Skály, vodopád, zeleň', yaw: Math.PI, amb: [['weir', 0.8], ['birds', 0.12]] },
+  { id: 'lauter_waterfall', name: 'Potok', desc: 'Lesní potok', yaw: 0, amb: [['creek', 0.9], ['birds', 0.3]] },
+  { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko s pagodou', yaw: -Math.PI / 2, amb: [['birds', 0.45], ['creek', 0.15]] },
+  { id: 'radkow_lake', name: 'Pláž', desc: 'Klidné jezero s horami', yaw: 0, amb: [['creek', 0.3], ['birds', 0.3]] },
+  { id: 'proc', name: 'Město', desc: 'Kreslená řeka (bez stahování)', yaw: 0, amb: [['creek', 0.5]] },
 ];
 
 export const DEFAULT_SETTINGS = {
   env: 'lakeside',
   sens: { jab: 3, hook: 3, upper: 3 },
   zone: 3,
+  ambient: 3, // hlasitost zvuků přírody 0–5
   track: 'mesto',
   diff: 'mid',
   power: 'norm',

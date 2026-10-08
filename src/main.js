@@ -1,6 +1,7 @@
 // PULZ – hlavní aplikace: renderer, režimy (PC / VR), tok obrazovek, ovládání prstem, smyčka
 import * as THREE from 'three';
-import { TRACKS, DIFFS, DEFAULT_SETTINGS, COL, ENVS } from './config.js';
+import { TRACKS, DIFFS, DEFAULT_SETTINGS, COL, ENVS, AMB } from './config.js';
+import { makeTrack, saveCustom, loadCustom, saveVideo, loadVideo } from './songs.js';
 import { Env } from './env.js';
 import { Hands, J } from './hands.js';
 import { TargetPool } from './targets.js';
@@ -9,7 +10,7 @@ import { makePanels } from './ui.js';
 import { Game } from './game.js';
 import { Bot } from './bot.js';
 import { AudioSys } from './audio.js';
-import { buildChart } from './chart.js';
+import { buildChart, buildChartFromAnalysis } from './chart.js';
 import { store, clamp, track as va } from './util.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _fwd = new THREE.Vector3();
@@ -101,26 +102,124 @@ class App {
     this.showMenu();
     this.warmup();
     this.loadEnv();
+    this.initCustom();
     r.setAnimationLoop((t, frame) => this.loop(frame));
     window.__app = this;
     window.__game = this.game;
   }
 
   // načtení prostředí (360° fotka)
+  envList() {
+    const l = ENVS.slice();
+    if (this.customVideoURL) l.splice(l.length - 1, 0, { id: 'video', name: 'Moje video', desc: 'Vlastní 360° video', amb: [] });
+    return l;
+  }
+
   loadEnv() {
-    const env = ENVS.find((e) => e.id === this.settings.env) || ENVS[0];
+    const env = this.envList().find((e) => e.id === this.settings.env) || ENVS[0];
     const token = (this.envToken = (this.envToken || 0) + 1);
     this.envReady = false;
     this.envStatus = env.id === 'proc' ? '' : 'Načítám prostředí…';
-    this.env
-      .loadPanorama(env, (k) => {
-        if (token === this.envToken) this.envStatus = k < 0 ? 'Načítám prostředí…' : `Načítám prostředí ${Math.round(k * 100)} %`;
-      })
-      .then((ok) => {
-        if (token !== this.envToken) return;
-        this.envReady = true;
-        this.envStatus = ok ? '' : 'Fotku se nepodařilo načíst – kreslená scéna';
+    const prog = (k) => {
+      if (token === this.envToken) this.envStatus = k < 0 ? 'Načítám prostředí…' : `Načítám prostředí ${Math.round(k * 100)} %`;
+    };
+    const p = env.id === 'video' ? this.env.loadVideo(this.customVideoURL, prog).then((v) => this.attachVideoSound(v)).then(() => true, () => false) : this.env.loadPanorama(env, prog);
+    p.then((ok) => {
+      if (token !== this.envToken) return;
+      this.envReady = true;
+      this.envStatus = ok ? '' : 'Prostředí se nepodařilo načíst – kreslená scéna';
+      if (!ok && env.id === 'video') this.env.useProc();
+    });
+    this.applyAmbient(env);
+  }
+
+  // zvuky přírody pro prostředí (tiše pod hudbou)
+  applyAmbient(env) {
+    env = env || this.envList().find((e) => e.id === this.settings.env) || ENVS[0];
+    if (!this.audio) return;
+    const layers = (env.amb || []).map(([k, g]) => ({ url: AMB[k], gain: g }));
+    this.audio.setAmbient(layers);
+    this.audio.setAmbientLevel((this.settings.ambient ?? 3) / 5);
+  }
+
+  attachVideoSound(v) {
+    if (!v || !this.audio || v.__pulzSound) return;
+    try {
+      const node = this.audio.ctx.createMediaElementSource(v);
+      node.connect(this.audio.ambBus);
+      v.__pulzSound = true;
+      v.muted = false;
+    } catch (e) {}
+  }
+
+  // vlastní skladba a video (uložené jen v zařízení)
+  async initCustom() {
+    try {
+      const rec = await loadCustom();
+      if (rec && rec.data) {
+        this.songStatus = 'Načítám vlastní skladbu…';
+        this.customTrack = await makeTrack(rec.name, rec.data, (m) => (this.songStatus = m), rec.an);
+        this.songStatus = '';
+        this.updateDomStatus();
+      }
+    } catch (e) {
+      this.songStatus = '';
+    }
+    try {
+      const vid = await loadVideo();
+      if (vid && vid.blob) {
+        this.customVideoURL = URL.createObjectURL(vid.blob);
+        this.customVideoName = vid.name;
+        if (this.settings.env === 'video') this.loadEnv();
+        this.updateDomStatus();
+      }
+    } catch (e) {}
+  }
+
+  async onSongFile(file) {
+    if (!file) return;
+    this.songStatus = 'Načítám ' + file.name + '…';
+    this.updateDomStatus();
+    try {
+      const data = await file.arrayBuffer();
+      const t = await makeTrack(file.name, data, (m) => {
+        this.songStatus = m;
+        this.updateDomStatus();
       });
+      this.customTrack = t;
+      this.settings.track = 'custom';
+      this.saveSettings();
+      await saveCustom(file.name, data, t.an);
+      this.songStatus = '';
+      va('custom_song', { bpm: t.bpm });
+    } catch (e) {
+      console.error(e);
+      this.songStatus = 'Skladbu se nepodařilo načíst (zkus MP3).';
+    }
+    this.updateDomStatus();
+  }
+
+  async onVideoFile(file) {
+    if (!file) return;
+    try {
+      await saveVideo(file.name, file);
+    } catch (e) {}
+    if (this.customVideoURL) URL.revokeObjectURL(this.customVideoURL);
+    this.customVideoURL = URL.createObjectURL(file);
+    this.customVideoName = file.name;
+    this.settings.env = 'video';
+    this.saveSettings();
+    this.loadEnv();
+    this.updateDomStatus();
+  }
+
+  updateDomStatus() {
+    if (!this.dom || !this.dom.custom) return;
+    const parts = [];
+    if (this.songStatus) parts.push(this.songStatus);
+    else if (this.customTrack) parts.push(`Skladba: ${this.customTrack.name} (${this.customTrack.bpm} BPM)`);
+    if (this.customVideoName) parts.push('Video: ' + this.customVideoName);
+    this.dom.custom.textContent = parts.join(' · ');
   }
 
   // předkompilace shaderů (jinak zásek na začátku tréninku)
@@ -156,17 +255,25 @@ class App {
 
   // ---------- pomocné ----------
   trackLen(t) {
+    if (t.custom) return t.duration;
     return (t.structure.reduce((s, x) => s + x[1], 0) * 4 * 60) / t.bpm;
   }
   get currentTrack() {
+    if (this.settings.track === 'custom' && this.customTrack) return this.customTrack;
     return TRACKS.find((t) => t.id === this.settings.track) || TRACKS[1];
   }
   saveSettings() {
     store.set('pulz.settings', this.settings);
   }
   ensureAudio() {
-    if (!this.audio) this.audio = new AudioSys();
+    if (!this.audio) {
+      this.audio = new AudioSys();
+      this.applyAmbient();
+      if (this.env.video) this.attachVideoSound(this.env.video);
+    }
     this.audio.resume();
+    this.audio.resumeAmbient();
+    if (this.env.video && this.env.video.paused) this.env.video.play().catch(() => {});
     return this.audio;
   }
   sfx(name, o) {
@@ -187,7 +294,20 @@ class App {
       note: document.getElementById('note'),
       fps: document.getElementById('fps'),
       overlay: document.getElementById('overlay'),
+      custom: document.getElementById('custom-status'),
     };
+    const fs = document.getElementById('file-song'), fv = document.getElementById('file-video');
+    document.getElementById('btn-song').addEventListener('click', () => {
+      this.ensureAudio();
+      fs.click();
+    });
+    document.getElementById('btn-video').addEventListener('click', () => {
+      this.ensureAudio();
+      fv.click();
+    });
+    fs.addEventListener('change', () => this.onSongFile(fs.files[0]));
+    fv.addEventListener('change', () => this.onVideoFile(fv.files[0]));
+    this.updateDomStatus();
     this.dom.vr.addEventListener('click', () => this.enterVR());
     this.dom.demo.addEventListener('click', (e) => {
       e.currentTarget.blur();
@@ -384,8 +504,8 @@ class App {
     const track = this.currentTrack;
     this.hideAll();
     this.screen = 'calib';
-    this.musicProgress = audio.isPrepared(track) ? 1 : 0;
-    if (!audio.isPrepared(track)) {
+    this.musicProgress = track.custom || audio.isPrepared(track) ? 1 : 0;
+    if (!track.custom && !audio.isPrepared(track)) {
       audio.prepare(track, (k) => (this.musicProgress = k)).then(() => (this.musicProgress = 1));
     }
     const needCal = this.mode === 'vr' && !this.calibData;
@@ -445,12 +565,18 @@ class App {
   beginPlay() {
     const audio = this.audio;
     const track = this.currentTrack;
-    const chart = buildChart(track, this.settings.diff, audio.spb(track));
+    const chart = track.custom ? buildChartFromAnalysis(track.an, track.phrases, this.settings.diff, track.seed) : buildChart(track, this.settings.diff, audio.spb(track));
     this.hideAll();
     this.game.start(chart, track, this.settings.diff, this.calibData);
     this.bot.reset();
-    this.spb = audio.spb(track);
-    audio.startSong(track, audio.ctx.currentTime + 0.25);
+    if (track.custom) {
+      this.spb = 60 / track.bpm;
+      audio.startBuffer(track.buffer, audio.ctx.currentTime + 0.25);
+    } else {
+      this.spb = audio.spb(track);
+      audio.startSong(track, audio.ctx.currentTime + 0.25);
+    }
+    audio.duckAmbient(true);
     this.screen = 'play';
     if (this.mode === 'desktop') {
       this.yaw = 0;
@@ -486,7 +612,8 @@ class App {
     const track = g.track;
     r.trackName = track.name;
     r.diffName = g.diff.name;
-    const key = track.id + ':' + g.diff.id;
+    const key = (track.custom ? 'custom:' + track.name : track.id) + ':' + g.diff.id;
+    if (this.audio) this.audio.duckAmbient(false);
     const prev = this.records[key];
     r.record = done && (!prev || r.score > prev.score) && r.score > 0;
     if (r.record) {
@@ -551,7 +678,10 @@ class App {
     setTimeout(() => {
       if (panel.pressFlash === id) panel.pressFlash = null;
     }, 160);
-    if (id.startsWith('track:')) S.track = id.slice(6);
+    if (id.startsWith('track:')) {
+      const tid = id.slice(6);
+      if (tid !== 'custom' || this.customTrack) S.track = tid;
+    }
     else if (id.startsWith('diff:')) S.diff = id.slice(5);
     else if (id.startsWith('env:')) {
       if (S.env !== id.slice(4)) {
@@ -567,6 +697,10 @@ class App {
         S.sens[key] = Math.max(1, Math.min(5, S.sens[key] + d));
       }
     } else if (id === 'fps') S.showFps = !S.showFps;
+    else if (id === 'amb:-' || id === 'amb:+') {
+      S.ambient = Math.max(0, Math.min(5, (S.ambient ?? 3) + (id === 'amb:+' ? 1 : -1)));
+      if (this.audio) this.audio.setAmbientLevel(S.ambient / 5);
+    }
     else if (id === 'settings') this.showSettings();
     else if (id === 'practice') this.togglePractice();
     else if (id === 'back') {
@@ -742,9 +876,10 @@ class App {
       const wtxt = words[beat] || '';
       if (beat !== this.lastCount && beat >= 0 && beat <= 8) {
         this.lastCount = beat;
-        if (wtxt) this.sfx(beat === 7 ? 'go' : 'count');
+        if (wtxt && !(this.game.track && this.game.track.custom)) this.sfx(beat === 7 ? 'go' : 'count');
       }
-      this.bigText = t < 8 * this.spb ? wtxt : '';
+      if (this.game.track && this.game.track.custom) this.bigText = t < 2.5 ? this.game.track.name.slice(0, 22) : '';
+      else this.bigText = t < 8 * this.spb ? wtxt : '';
       this.panels.big.refresh(this.bigText);
       const g = this.game;
       this.panels.info.refresh(`${Math.ceil(g.duration - g.t)}|${Math.round(g.kcal)}|${g.score}|${g.mult}|${Math.round((g.t / g.duration) * 100)}|${this.settings.showFps ? this.fps : ''}`);

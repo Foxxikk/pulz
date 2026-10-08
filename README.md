@@ -16,6 +16,12 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v3
+- **3D létající objekty**: broušené energetické krystaly, které se za letu převalují, uvnitř svítí a odrážejí okolí. Žádné kruhy ani závorky – směr hooku a zvedáku ukazuje 3D šipka. Po úderu se krystal roztříští na barevné střepy, které osvítí záblesk.
+- **Vlastní skladba (MP3)**: tlačítko na stránce (před vstupem do VR). Hra skladbu sama rozebere – najde tempo, doby a sekce (klid / sloka / refrén / gradace) – a vygeneruje terče přesně do rytmu. Skladba se uloží jen v zařízení (nikam se neodesílá) a v menu je jako čtvrtá trať.
+- **Vlastní 360° video** jako pozadí (nahrání stejně jako skladba; zvuk videa hraje tiše pod hudbou).
+- **Zvuky přírody** u každého prostředí (potok, jez/vodopád, ptáci) – při tréninku se samy ztiší, hlasitost v nastavení.
+
 ## Novinky v2
 - **Prostředí z 360° fotek** (Poly Haven, CC0): Jezero, Laguna, Potok, Zahrada, Hráz + kreslené Město. Volí se v menu, načítají se za běhu v 8K (přes `/pano/` ve Vercelu), terče a rukavice v nich odrážejí okolí.
 - **Nové létající terče**: kovové zkosené tělo s odrazy, svítící obruč, rotující ikona, záře, svítící ohon za letem, časovací kruh a závorky, které zezlátnou v perfektní chvíli. Při zásahu se terč roztříští na kovové a svítící střepy.
@@ -40,4 +46,4 @@ Netestováno na skutečném Questu – logika, vstupy rukou a tok obrazovek ově
 Vanilla JS moduly bez buildu, three.js r180 ve `vendor/`, statický hosting (Vercel). Testy v `test/` (Playwright + SwiftShader):
 `node test/chart.mjs`, `node test/sim.mjs '[{"track":"mesto","diff":"mid"}]'`, `node test/xr.mjs`, `node test/shots.mjs`.
 
-360° fotky prostředí: [Poly Haven](https://polyhaven.com) (CC0) – lakeside, blue_grotto, lauter_waterfall, chinese_garden, radkow_lake. Ostatní grafika, zvuk i hudba jsou procedurální (vlastní). Hra je inspirovaná žánrem VR boxovacího fitness, nepoužívá cizí názvy, grafiku ani hudbu.
+360° fotky prostředí: [Poly Haven](https://polyhaven.com) (CC0) – lakeside, blue_grotto, lauter_waterfall, chinese_garden, radkow_lake. Zvuky přírody: Wikimedia Commons – „Forest lawn creek“ (Dsw, volné dílo), „Vojníkov, 3. jez“ (Juandev, volné dílo), „Erithacus rubecula XC470227“ (Marie-Lan Taÿ Pamart, CC BY-SA 4.0). Ostatní grafika, zvuk i hudba jsou procedurální (vlastní). Vlastní skladby a videa nahrané hráčem zůstávají jen v jeho zařízení. Hra je inspirovaná žánrem VR boxovacího fitness, nepoužívá cizí názvy, grafiku ani hudbu.

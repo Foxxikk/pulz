@@ -1,50 +1,40 @@
-// Létající objekty: kovový terč se zkosením a odrazy okolí, svítící obruč, záře, časovací kruh a závorky,
-// ukazatel směru úderu; energetické bariéry („Měsíc“) s animovaným shaderem.
+// Létající objekty ve 3D: fasetované energetické krystaly (převalují se, uvnitř svítí, odráží okolí).
+// Směr úderu ukazuje 3D šipka (hook ze strany, zvedák zespodu). Žádné kruhy ani závorky.
+// Bariéry: energetické štíty („Měsíc“) s animovaným shaderem.
 import * as THREE from 'three';
 import { COL, GEO } from './config.js';
-import { drawHexIcon } from './hands.js';
 
 const R = GEO.targetR;
+const _q = new THREE.Quaternion();
 
-// ---------- textury ----------
-function faceTexture(color) {
-  const S = 256;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const g = c.getContext('2d');
-  const bg = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-  bg.addColorStop(0, '#1c2740');
-  bg.addColorStop(0.7, '#0c1220');
-  bg.addColorStop(1, '#05080f');
-  g.fillStyle = bg;
-  g.fillRect(0, 0, S, S);
-  // jemné soustředné drážky
-  g.strokeStyle = 'rgba(255,255,255,0.05)';
-  g.lineWidth = 2;
-  for (let r = 30; r < S / 2; r += 14) {
-    g.beginPath();
-    g.arc(S / 2, S / 2, r, 0, Math.PI * 2);
-    g.stroke();
+// krystal: ikosaedr s mírně nepravidelnými vrcholy (vypadá jako broušený kámen)
+function crystalGeometry(r, seed) {
+  const g = new THREE.IcosahedronGeometry(r * 1.05, 0);
+  const pos = g.attributes.position;
+  const map = new Map();
+  let s = seed;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < pos.count; i++) {
+    const key = pos.getX(i).toFixed(4) + ',' + pos.getY(i).toFixed(4) + ',' + pos.getZ(i).toFixed(4);
+    if (!map.has(key)) map.set(key, 0.9 + rnd() * 0.22);
+    const k = map.get(key);
+    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 1.06, pos.getZ(i) * k);
   }
-  // vnitřní svítící kroužek
-  g.save();
-  g.shadowColor = color;
-  g.shadowBlur = 18;
-  g.strokeStyle = color;
-  g.lineWidth = 5;
-  g.beginPath();
-  g.arc(S / 2, S / 2, S * 0.4, 0, Math.PI * 2);
-  g.stroke();
-  g.restore();
-  drawHexIcon(g, S / 2, S / 2, S * 0.27, color);
-  // odlesk ikony (bílé jádro)
-  g.globalAlpha = 0.35;
-  drawHexIcon(g, S / 2, S / 2, S * 0.17, '#ffffff', false);
-  g.globalAlpha = 1;
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
+  g.computeVertexNormals();
+  return g;
+}
+
+function chevronGeometry() {
+  // 3D šipka (extrudovaný tvar „>“)
+  const s = new THREE.Shape();
+  s.moveTo(-0.03, 0.05);
+  s.lineTo(0.035, 0);
+  s.lineTo(-0.03, -0.05);
+  s.lineTo(-0.012, 0);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.018, bevelEnabled: true, bevelThickness: 0.004, bevelSize: 0.004, bevelSegments: 2 });
+  g.translate(0, 0, -0.009);
+  return g;
 }
 
 function glowTexture() {
@@ -54,39 +44,13 @@ function glowTexture() {
   const g = c.getContext('2d');
   const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
   gr.addColorStop(0, 'rgba(255,255,255,1)');
-  gr.addColorStop(0.18, 'rgba(255,255,255,0.55)');
-  gr.addColorStop(0.45, 'rgba(255,255,255,0.14)');
+  gr.addColorStop(0.25, 'rgba(255,255,255,0.45)');
   gr.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = gr;
   g.fillRect(0, 0, S, S);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
-}
-
-// profil terče (rotační těleso) – zkosené hrany, mírně vypouklá čelní strana
-function bodyGeometry() {
-  const pts = [
-    [0.0, -0.034],
-    [R * 0.78, -0.034],
-    [R * 0.95, -0.028],
-    [R * 1.0, -0.016],
-    [R * 1.0, 0.016],
-    [R * 0.97, 0.028],
-    [R * 0.88, 0.036],
-    [R * 0.7, 0.04],
-    [0.0, 0.042],
-  ].map(([x, y]) => new THREE.Vector2(x, y));
-  const g = new THREE.LatheGeometry(pts, 48);
-  g.rotateX(Math.PI / 2); // osa rotace = Z, čelo míří na hráče (+Z)
-  return g;
-}
-
-function wingShape() {
-  const s = new THREE.Shape();
-  s.absarc(0, 0, 0.11, -Math.PI * 0.42, Math.PI * 0.42, false);
-  s.absarc(0.045, 0, 0.085, Math.PI * 0.45, -Math.PI * 0.45, true);
-  return new THREE.ShapeGeometry(s, 20);
 }
 
 // ---------- bariéra: shader ----------
@@ -98,14 +62,12 @@ uniform vec3 uColor; uniform float uOp; uniform float uTime;
 varying vec2 vP;
 void main(){
   float r = length(vP);
-  // šikmé výstražné pruhy, které se posouvají
   float stripes = smoothstep(0.35, 0.65, abs(fract((vP.x + vP.y) * 4.0 - uTime * 1.6) - 0.5) * 2.0);
-  // šestiúhelníková mřížka (energetický štít)
   vec2 q = vP * 9.0;
   q.x += mod(floor(q.y), 2.0) * 0.5;
   vec2 f = abs(fract(q) - 0.5);
   float grid = smoothstep(0.42, 0.5, max(f.x, f.y));
-  float edge = smoothstep(0.86, 1.0, r) + smoothstep(0.06, 0.0, vP.y);
+  float edge = smoothstep(0.86, 1.0, r) + (1.0 - smoothstep(0.0, 0.06, vP.y));
   float scan = smoothstep(0.0, 0.04, abs(fract(r * 1.5 - uTime * 0.9) - 0.5) - 0.44);
   float a = 0.14 + stripes * 0.12 + grid * 0.16 + edge * 0.6 + scan * 0.25;
   gl_FragColor = vec4(uColor * (1.0 + edge * 0.8), clamp(a, 0.0, 1.0) * uOp);
@@ -114,99 +76,98 @@ void main(){
 export class TargetPool {
   constructor(scene) {
     this.scene = scene;
-    this.bodyGeo = bodyGeometry();
-    this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x141a28, roughness: 0.18, metalness: 0.9, envMapIntensity: 1.3 });
-    this.rimGeo = new THREE.TorusGeometry(R * 1.005, 0.0075, 10, 64);
-    this.innerGeo = new THREE.TorusGeometry(R * 0.86, 0.004, 6, 64);
-    this.rimMat = {
-      L: new THREE.MeshBasicMaterial({ color: new THREE.Color(COL.L).multiplyScalar(1.4), toneMapped: false }),
-      R: new THREE.MeshBasicMaterial({ color: new THREE.Color(COL.R).multiplyScalar(1.4), toneMapped: false }),
-    };
-    this.faceGeo = new THREE.CircleGeometry(R * 0.7, 48);
-    this.faceMat = {
-      L: new THREE.MeshBasicMaterial({ map: faceTexture(COL.Lcss), toneMapped: false }),
-      R: new THREE.MeshBasicMaterial({ map: faceTexture(COL.Rcss), toneMapped: false }),
-    };
+    this.geos = [0, 1, 2, 3].map((i) => crystalGeometry(R, 1234 + i * 777));
+    this.edgeGeos = this.geos.map((g) => new THREE.EdgesGeometry(g, 8));
+    this.coreGeo = new THREE.IcosahedronGeometry(R * 0.55, 1);
+    this.chevGeo = chevronGeometry();
     this.glowTex = glowTexture();
-    this.bracketGeo = new THREE.TorusGeometry(1, 0.06, 4, 24, Math.PI * 0.42);
-    this.ringGeo = new THREE.RingGeometry(0.93, 1, 64);
-    this.wingGeo = wingShape();
+    const mk = (hex) => {
+      const c = new THREE.Color(hex);
+      return {
+        shell: new THREE.MeshStandardMaterial({
+          color: c.clone().multiplyScalar(0.35),
+          emissive: c.clone(),
+          emissiveIntensity: 0.18,
+          metalness: 0.65,
+          roughness: 0.06,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.86,
+          envMapIntensity: 2.6,
+        }),
+        edge: new THREE.LineBasicMaterial({ color: c.clone().lerp(new THREE.Color(1, 1, 1), 0.55), transparent: true, opacity: 0.85, toneMapped: false }),
+        core: new THREE.MeshBasicMaterial({ color: c.clone().lerp(new THREE.Color(1, 1, 1), 0.35), toneMapped: false }),
+        glow: new THREE.SpriteMaterial({ map: this.glowTex, color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.55 }),
+      };
+    };
+    this.mats = { L: mk(COL.L), R: mk(COL.R) };
+    this.chevMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.7, metalness: 0.2, roughness: 0.3 });
     this.pool = [];
-    for (let i = 0; i < 28; i++) this.pool.push(this.make());
+    for (let i = 0; i < 28; i++) this.pool.push(this.make(i));
     this.barrierPool = [];
     for (let i = 0; i < 6; i++) this.barrierPool.push(this.makeBarrier());
     this.time = 0;
   }
 
-  make() {
+  make(i) {
     const g = new THREE.Group();
     const spin = new THREE.Group();
     g.add(spin);
-    const body = new THREE.Mesh(this.bodyGeo, this.bodyMat);
-    const rim = new THREE.Mesh(this.rimGeo, this.rimMat.L);
-    rim.position.z = 0.03;
-    const inner = new THREE.Mesh(this.innerGeo, this.rimMat.L);
-    inner.position.z = 0.0405;
-    const face = new THREE.Mesh(this.faceGeo, this.faceMat.L);
-    face.position.z = 0.0425;
-    spin.add(body, rim, inner, face);
-    // záře za terčem
-    const haloMat = new THREE.SpriteMaterial({ map: this.glowTex, color: COL.L, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6 });
-    const halo = new THREE.Sprite(haloMat);
-    halo.scale.setScalar(0.62);
-    halo.renderOrder = 3;
-    g.add(halo);
-    // závorky „( )“ a časovací kruh
-    const brMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-    const brackets = new THREE.Group();
-    for (const a of [Math.PI * 0.79, -Math.PI * 0.21]) {
-      const b = new THREE.Mesh(this.bracketGeo, brMat);
-      b.rotation.z = a;
-      brackets.add(b);
-    }
-    g.add(brackets);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false });
-    const ring = new THREE.Mesh(this.ringGeo, ringMat);
-    ring.position.z = 0.01;
-    g.add(ring);
-    const wingMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, toneMapped: false });
-    const wing = new THREE.Mesh(this.wingGeo, wingMat);
-    g.add(wing);
-    const wingGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5 }));
-    wingGlow.scale.setScalar(0.22);
-    wing.add(wingGlow);
-    wingGlow.position.set(0.06, 0, 0.01);
+    const core = new THREE.Mesh(this.coreGeo, this.mats.L.core);
+    const shell = new THREE.Mesh(this.geos[i % 4], this.mats.L.shell);
+    shell.renderOrder = 2;
+    const edges = new THREE.LineSegments(this.edgeGeos[i % 4], this.mats.L.edge);
+    edges.renderOrder = 3;
+    spin.add(core, shell, edges);
+    // malá vnitřní záře (svítí skrz krystal)
+    const glow = new THREE.Sprite(this.mats.L.glow.clone());
+    glow.scale.setScalar(R * 3.2);
+    glow.renderOrder = 3;
+    g.add(glow);
+    // 3D šipka směru
+    const dir = new THREE.Group();
+    const c1 = new THREE.Mesh(this.chevGeo, this.chevMat);
+    const c2 = new THREE.Mesh(this.chevGeo, this.chevMat);
+    c2.position.x = -0.045;
+    c2.scale.setScalar(0.8);
+    dir.add(c1, c2);
+    g.add(dir);
     g.visible = false;
     this.scene.add(g);
-    return { g, spin, rim, inner, face, halo, haloMat, brackets, brMat, ring, ringMat, wing, wingMat, wingGlow, busy: false };
+    const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    return { g, spin, core, shell, edges, glow, dir, axis, spd: 2 + Math.random() * 2.5, busy: false, side: 'L', type: 'jab' };
   }
 
   get(side, type) {
     let o = this.pool.find((p) => !p.busy);
     if (!o) {
-      o = this.make();
+      o = this.make(this.pool.length);
       this.pool.push(o);
     }
     o.busy = true;
+    o.side = side;
+    o.type = type;
     o.g.visible = true;
-    o.rim.material = this.rimMat[side];
-    o.inner.material = this.rimMat[side];
-    o.face.material = this.faceMat[side];
-    o.haloMat.color.setHex(side === 'L' ? COL.L : COL.R);
-    o.wingGlow.material.color.setHex(side === 'L' ? COL.L : COL.R);
+    const m = this.mats[side];
+    o.shell.material = m.shell;
+    o.edges.material = m.edge;
+    o.core.material = m.core;
+    o.glow.material.color.copy(m.glow.color);
     o.g.scale.setScalar(1);
-    o.spin.rotation.set(0, 0, Math.random() * 6.28);
-    o.brackets.visible = true;
+    o.spin.quaternion.random();
+    o.axis.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+    o.spd = 2 + Math.random() * 2.5;
+    // šipka: hook = ze strany (míří dovnitř), zvedák = zespodu (míří nahoru)
     if (type === 'hook') {
-      o.wing.visible = true;
+      o.dir.visible = true;
       const sgn = side === 'R' ? 1 : -1;
-      o.wing.position.set(sgn * (R + 0.035), 0, 0.01);
-      o.wing.rotation.set(0, 0, sgn > 0 ? 0 : Math.PI);
+      o.dir.position.set(sgn * (R + 0.07), 0, 0);
+      o.dir.rotation.set(0, 0, sgn > 0 ? Math.PI : 0);
     } else if (type === 'upper') {
-      o.wing.visible = true;
-      o.wing.position.set(0, -(R + 0.035), 0.01);
-      o.wing.rotation.set(0, 0, -Math.PI / 2);
-    } else o.wing.visible = false;
+      o.dir.visible = true;
+      o.dir.position.set(0, -(R + 0.07), 0);
+      o.dir.rotation.set(0, 0, Math.PI / 2);
+    } else o.dir.visible = false;
     return o;
   }
 
@@ -215,32 +176,29 @@ export class TargetPool {
     o.g.visible = false;
   }
 
-  // vzhled terče během letu: r = zbývající čas do úderu, pop = náběh 0..1
-  animateTarget(o, r, pop, perfectWin, dt) {
-    const t = this.time;
-    o.spin.rotation.z += dt * 0.8;
-    o.face.rotation.z -= dt * 1.6;
-    // záře sílí, jak se terč blíží
-    const near = Math.max(0, 1 - Math.max(0, r) / 1.4);
-    o.haloMat.opacity = (0.28 + near * 0.5 + Math.sin(t * 10) * 0.05) * pop;
-    o.halo.scale.setScalar(0.45 + near * 0.3);
-    // závorky se svírají a otáčejí
-    const sc = R + 0.045 + Math.max(0, Math.min(r, 1.2)) * 0.3;
-    o.brackets.scale.setScalar(sc);
-    o.brackets.rotation.z = Math.max(0, Math.min(r, 2)) * 1.4;
-    o.brMat.opacity = Math.max(0.15, Math.min(1, 1.25 - r * 0.6)) * pop;
-    // časovací kruh: od velkého k obrysu terče přesně na dobu
-    const k = Math.max(0, Math.min(1, r / 0.9));
-    o.ring.scale.setScalar(R * 1.08 + k * 0.32);
-    o.ringMat.opacity = (1 - k) * 0.85 * pop;
-    const gold = Math.abs(r) < perfectWin;
-    o.brMat.color.setHex(gold ? COL.gold : 0xffffff);
-    o.ringMat.color.setHex(gold ? COL.gold : 0xffffff);
-    o.wingMat.opacity = 0.95 * pop;
-  }
-
   update(dt) {
     this.time += dt;
+    // společné „dýchání“ materiálů
+    const p = 0.5 + 0.5 * Math.sin(this.time * 6);
+    for (const k of ['L', 'R']) this.mats[k].shell.emissiveIntensity = 0.14 + p * 0.1;
+  }
+
+  // r = zbývající čas do úderu, pop = náběh 0..1
+  animateTarget(o, r, pop, perfectWin, dt) {
+    // převalování krystalu
+    _q.setFromAxisAngle(o.axis, o.spd * dt);
+    o.spin.quaternion.premultiply(_q);
+    // jádro pulzuje a sílí, jak se krystal blíží
+    const near = Math.max(0, 1 - Math.max(0, r) / 1.2);
+    const beat = Math.abs(r) < perfectWin ? 1 : 0;
+    o.core.scale.setScalar(0.85 + near * 0.35 + beat * 0.15 + Math.sin(this.time * 14) * 0.03);
+    o.glow.material.opacity = 0.35 + near * 0.4;
+    o.glow.scale.setScalar(R * (2.6 + near * 1.4 + beat * 0.8));
+    // šipka se jemně „pumpuje“ ve směru úderu
+    if (o.dir.visible) {
+      const k = (this.time * 3) % 1;
+      o.dir.children[0].position.x = 0.012 * Math.sin(k * Math.PI * 2);
+    }
   }
 
   makeBarrier() {
@@ -262,7 +220,6 @@ export class TargetPool {
     const line = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 2.04, 12), edgeMat);
     line.rotation.z = Math.PI / 2;
     g.add(line);
-    // zářící konce hrany
     for (const x of [-1, 1]) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffc050, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
       s.position.set(x, 0, 0);

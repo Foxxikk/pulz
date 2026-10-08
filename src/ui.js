@@ -152,21 +152,31 @@ export function makePanels(app) {
     text(g, 'PULZ', 152, 98, 76, { weight: 900 });
     text(g, 'Boxuj v rytmu · ovládání jen rukama', 390, 90, 28, { color: 'rgba(255,255,255,0.7)', weight: 500 });
     // trati
-    TRACKS.forEach((t, i) => {
-      const x = 52 + i * 398, y = 132;
-      const on = S.track === t.id;
-      const rec = app.records[t.id + ':' + S.diff];
-      p.btn('track:' + t.id, x, y, 378, 168, '', { on });
-      text(g, t.name, x + 24, y + 50, 38, { weight: 800 });
-      text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))} · ${t.desc.split(',')[0]}`, x + 24, y + 96, 25, { color: '#9fd0ff', weight: 600 });
-      text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : 'Zatím bez rekordu', x + 24, y + 140, 25, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.45)', weight: 600 });
+    const list = TRACKS.concat([app.customTrack || { id: 'custom', name: 'Vlastní skladba', placeholder: true }]);
+    list.forEach((t, i) => {
+      const x = 52 + i * 298, y = 132;
+      const on = S.track === t.id && (t.id !== 'custom' || app.customTrack);
+      const recKey = (t.custom ? 'custom:' + t.name : t.id) + ':' + S.diff;
+      const rec = app.records[recKey];
+      p.btn('track:' + t.id, x, y, 284, 168, '', { on, disabled: t.placeholder });
+      const nm = t.name.length > 16 ? t.name.slice(0, 15) + '…' : t.name;
+      text(g, nm, x + 20, y + 48, 34, { weight: 800, color: t.placeholder ? 'rgba(255,255,255,0.55)' : '#fff' });
+      if (t.placeholder) {
+        text(g, 'Nahraj MP3 na stránce', x + 20, y + 94, 23, { color: '#9fd0ff', weight: 600 });
+        text(g, 'před vstupem do VR', x + 20, y + 130, 23, { color: 'rgba(255,255,255,0.5)', weight: 500 });
+      } else {
+        text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))}`, x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
+        text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : t.custom ? 'Vlastní skladba' : t.desc.split(',')[0], x + 20, y + 136, 23, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.5)', weight: 600 });
+      }
     });
-    // prostředí (360° fotky)
+    // prostředí (360° fotky / video)
     text(g, 'Prostředí', 52, 340, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
-    const st = app.envStatus;
+    const st = app.envStatus || app.songStatus;
     if (st) text(g, st, 1228, 340, 24, { align: 'right', color: '#9fd0ff', weight: 600 });
-    ENVS.forEach((e, i) => {
-      p.btn('env:' + e.id, 52 + i * 197, 354, 188, 82, e.name, { on: S.env === e.id, size: 32 });
+    const envs = app.envList();
+    const ew = (1176 - (envs.length - 1) * 9) / envs.length;
+    envs.forEach((e, i) => {
+      p.btn('env:' + e.id, 52 + i * (ew + 9), 354, ew, 82, e.name, { on: S.env === e.id, size: envs.length > 6 ? 27 : 32 });
     });
     // obtížnost
     text(g, 'Obtížnost', 52, 478, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
@@ -196,7 +206,7 @@ export function makePanels(app) {
     smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
     smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
-    p.btn('fps', 934, 286, 286, 120, 'Ukazatel FPS', { on: S.showFps, sub: S.showFps ? 'zapnuto' : 'vypnuto', size: 32 });
+    smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);
     // poslední údery
     roundRect(g, 52, 432, 700, 420, 24);
     g.fillStyle = 'rgba(0,0,0,0.25)';

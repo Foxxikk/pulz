@@ -232,11 +232,64 @@ export class Env {
     }
   }
 
+  // 360° video (equirect) jako pozadí; vrací <video> (zvuk napojí main do zvuků prostředí)
+  async loadVideo(src, onProgress) {
+    this.stopVideo();
+    const v = document.createElement('video');
+    v.crossOrigin = 'anonymous';
+    v.loop = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    v.src = src;
+    if (onProgress) onProgress(-1);
+    await new Promise((res, rej) => {
+      v.addEventListener('canplay', res, { once: true });
+      v.addEventListener('error', () => rej(new Error('video')), { once: true });
+      setTimeout(res, 15000);
+    });
+    try {
+      await v.play();
+    } catch (e) {
+      v.muted = true;
+      try { await v.play(); } catch (e2) {}
+    }
+    const tex = new THREE.VideoTexture(v);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    this.video = v;
+    this.videoTex = tex;
+    this.mode = 'pano';
+    this.pano.material.map = tex;
+    this.pano.material.needsUpdate = true;
+    this.pano.rotation.y = 0;
+    this.pano.visible = true;
+    this.group.visible = false;
+    this.scene.fog = null;
+    this.splash = false;
+    if (onProgress) onProgress(1);
+    return v;
+  }
+
+  stopVideo() {
+    if (this.video) {
+      try { this.video.pause(); } catch (e) {}
+      this.video.removeAttribute('src');
+      this.video.load();
+      this.video = null;
+    }
+    if (this.videoTex) {
+      this.videoTex.dispose();
+      this.videoTex = null;
+    }
+  }
+
   setEyeHeight(h) {
     this.pano.position.y = h;
   }
 
   useProc() {
+    this.stopVideo();
     this.mode = 'proc';
     this.group.visible = true;
     this.pano.visible = false;
@@ -333,6 +386,7 @@ export class Env {
       }
     }
     if (onProgress) onProgress(1);
+    this.stopVideo();
     this.mode = 'pano';
     this.pano.material.map = entry.tex;
     this.pano.material.needsUpdate = true;

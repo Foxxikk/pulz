@@ -109,7 +109,13 @@ export function buildChart(track, diffId, spb) {
   raw.sort((a, b) => a.beat - b.beat);
 
   const totalBeats = bar * 4;
-  // bariéry: min. 3 doby od sebe, kolem nich volno
+  const events = finalize(raw, (b) => b * spb, 8, totalBeats - 4);
+  return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't').length, barriers: events.filter((e) => e.kind === 'b').length };
+}
+
+// společné dočištění: bariéry, volno kolem nich, stejná ruka min. 0,35 s, časy
+function finalize(raw, timeOf, minBeat, maxBeat) {
+  raw.sort((a, b) => a.beat - b.beat);
   const barriers = [];
   for (const e of raw) {
     if (e.kind !== 'b') continue;
@@ -117,11 +123,10 @@ export function buildChart(track, diffId, spb) {
     barriers.push(e);
   }
   let events = raw.filter((e) => e.kind === 't' && !barriers.some((b) => Math.abs(b.beat - e.beat) < 0.9));
-  // stejná ruka nejdřív za 0,35 s
   const lastT = { L: -9, R: -9 };
   const ok = [];
   for (const e of events) {
-    const t = e.beat * spb;
+    const t = timeOf(e.beat);
     if (t - lastT[e.hand] < 0.35) {
       const other = e.hand === 'L' ? 'R' : 'L';
       if (t - lastT[other] >= 0.35 && e.type !== 'hook') e.hand = other;
@@ -130,11 +135,65 @@ export function buildChart(track, diffId, spb) {
     lastT[e.hand] = t;
     ok.push(e);
   }
-  events = ok.concat(barriers).filter((e) => e.beat >= 8 && e.beat <= totalBeats - 4);
+  events = ok.concat(barriers).filter((e) => e.beat >= minBeat && e.beat <= maxBeat);
   events.sort((a, b) => a.beat - b.beat);
   events.forEach((e, i) => {
     e.i = i;
-    e.t = e.beat * spb;
+    e.t = timeOf(e.beat);
   });
-  return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't').length, barriers: events.filter((e) => e.kind === 'b').length };
+  return events;
+}
+
+// Choreografie pro vlastní skladbu z analýzy (doby nemusí být přesně pravidelné)
+export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
+  const R = rng(seed * 1000 + diffId.length * 17 + diffId.charCodeAt(0));
+  const beats = an.beats;
+  const timeOf = (b) => {
+    const i = Math.floor(b);
+    if (i < 0) return beats[0] + b * (beats[1] - beats[0]);
+    if (i >= beats.length - 1) return beats[beats.length - 1] + (b - beats.length + 1) * (beats[beats.length - 1] - beats[beats.length - 2]);
+    return beats[i] + (b - i) * (beats[i + 1] - beats[i]);
+  };
+  const raw = [];
+  let prevType = null;
+  let buildIdx = 0;
+  for (const ph of phrases) {
+    if (ph.type === 'silent') {
+      prevType = 'silent';
+      continue;
+    }
+    let list;
+    if (ph.type === 'build') list = buildPhrase(diffId, buildIdx++ % 2);
+    else {
+      let lib = LIB[ph.type][diffId];
+      if (ph.type === 'drop' && prevType !== 'drop') lib = LIB.dropStart[diffId];
+      list = parse(lib[Math.floor(R() * lib.length)]);
+    }
+    if (ph.type !== 'build') buildIdx = 0;
+    // na snadné obtížnosti v klidných pasážích ubrat
+    const sx = (R() - 0.5) * 0.14;
+    const sy = (R() - 0.5) * 0.1;
+    for (const e of list) {
+      // půldoby jen tam, kde je v hudbě opravdu úder
+      if (e.b % 1 !== 0) {
+        const bi = ph.b + Math.floor(e.b);
+        if ((an.halfOn[bi] || 0) < 0.08 && diffId !== 'hard') continue;
+      }
+      raw.push({ ...e, beat: ph.b + e.b, sx: sx + (R() - 0.5) * 0.05, sy: sy + (R() - 0.5) * 0.05, low: e.type === 'jab' && R() < 0.15, section: ph.type });
+    }
+    prevType = ph.type;
+  }
+  // první terč nejdřív ve 3,5 s (let terče + čas na přípravu)
+  let minBeat = 0;
+  while (minBeat < beats.length && beats[minBeat] < 3.5) minBeat++;
+  const lastPh = phrases.filter((p) => p.type !== 'silent').pop();
+  const maxBeat = lastPh ? lastPh.b + 8 : beats.length - 1;
+  const events = finalize(raw, timeOf, minBeat, Math.min(maxBeat, beats.length - 2));
+  return {
+    events,
+    totalBeats: beats.length,
+    duration: an.duration,
+    targets: events.filter((e) => e.kind === 't').length,
+    barriers: events.filter((e) => e.kind === 'b').length,
+  };
 }
