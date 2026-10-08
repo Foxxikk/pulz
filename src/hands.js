@@ -288,7 +288,7 @@ class Trail {
       _b.crossVectors(_d, _a);
       if (_b.lengthSq() < 1e-9) _b.set(0, 1, 0);
       _b.normalize();
-      const w = 0.032 * (1 - i / this.n);
+      const w = 0.018 * (1 - i / this.n);
       this.pos[i * 6] = p.x + _b.x * w;
       this.pos[i * 6 + 1] = p.y + _b.y * w;
       this.pos[i * 6 + 2] = p.z + _b.z * w;
