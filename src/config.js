@@ -126,7 +126,13 @@ export const BAR = {
   leanR: { ang: Math.PI / 2, dist: 0.12, kind: 'arc', name: 'úklon vpravo' },
   wallL: { ang: Math.PI / 2, dist: 0.2, kind: 'wall', name: 'zeď vlevo' }, // zeď zleva → uhni doprava
   wallR: { ang: -Math.PI / 2, dist: 0.2, kind: 'wall', name: 'zeď vpravo' },
+  arc: { ang: 0, dist: 'auto', kind: 'arc', name: 'půlkruh' }, // libovolně natočený (spirály), úhel v e.ang
 };
+// popis bariéry pro událost (spirálové půlkruhy nesou vlastní úhel)
+export function barOf(e) {
+  const b = BAR[e.type] || BAR.duck;
+  return e.ang != null ? { ...b, ang: e.ang } : b;
+}
 
 export const JUDGE = { perfect: 0.06, great: 0.12, late: 0.22 };
 

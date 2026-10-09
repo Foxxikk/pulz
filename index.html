@@ -37,6 +37,8 @@
   .lib-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lib-row button{padding:8px 12px;font-size:14px}
   .del{background:rgba(255,90,80,.25)}
+  .lib-hint{font-size:13px;color:#9fd0ff;margin:12px 0 8px}
+  .lib-sec{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.55);margin:10px 0 2px}
   #lib-status{margin-top:10px;font-size:14px;color:#9fd0ff;min-height:1em}
   #fps{position:fixed;right:12px;bottom:10px;font-size:12px;opacity:.6}
 </style>
@@ -47,16 +49,18 @@
   <div class="brand"><span>PULZ</span></div>
   <button id="btn-vr">Vstoupit do VR</button>
   <button id="btn-demo">Ukázka na PC</button>
-  <button id="btn-song" class="sec">Nahrát skladbu (MP3)</button>
+  <button id="btn-song" class="sec">Nahrát skladby (MP3)</button>
   <button id="btn-video" class="sec">Nahrát 360° video</button>
-  <button id="btn-lib" class="lib">Knihovna (PIN)</button>
-  <input id="file-song" type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav" hidden>
+  <button id="btn-lib" class="lib">Moje skladby</button>
+  <input id="file-song" type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav" multiple hidden>
   <input id="file-video" type="file" accept="video/*,.mp4,.webm" hidden>
   <div id="custom-status"></div>
   <div id="note">Nasaď Quest 3, odlož ovladače a boxuj rukama. Skladbu vyber z knihovny (PIN) nebo nahraj vlastní MP3 / 360° video ještě před vstupem do VR – knihovnu najdeš i v menu ve VR.</div>
 </div>
 <div id="lib" hidden>
-  <div class="lib-head"><b>Knihovna skladeb</b><button id="lib-close" aria-label="Zavřít">✕</button></div>
+  <div class="lib-head"><b>Moje skladby</b><button id="lib-close" aria-label="Zavřít">✕</button></div>
+  <div id="lib-local"></div>
+  <p id="lib-hint" class="lib-hint">Knihovna na serveru (PIN) – skladby z ní uvidíš na všech zařízeních, i na Questu:</p>
   <form id="lib-pinform" autocomplete="off">
     <label for="lib-pin">PIN</label>
     <input id="lib-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">

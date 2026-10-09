@@ -162,8 +162,8 @@ export function makePanels(app) {
       const nm = t.name.length > 16 ? t.name.slice(0, 15) + '…' : t.name;
       text(g, nm, x + 20, y + 48, 34, { weight: 800, color: t.placeholder ? 'rgba(255,255,255,0.55)' : '#fff' });
       if (t.placeholder) {
-        text(g, 'Knihovna skladeb', x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
-        text(g, 'vstup na PIN', x + 20, y + 130, 23, { color: 'rgba(255,255,255,0.5)', weight: 500 });
+        text(g, 'Moje skladby', x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
+        text(g, 'vyber ze seznamu', x + 20, y + 130, 23, { color: 'rgba(255,255,255,0.5)', weight: 500 });
       } else {
         text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))}`, x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
         text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : t.custom ? 'Vlastní skladba' : t.desc.split(',')[0], x + 20, y + 136, 23, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.5)', weight: 600 });
@@ -186,7 +186,7 @@ export function makePanels(app) {
     p.btn('start', 852, 466, 376, 130, 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot' });
     // nastavení
     const sn = (k) => S.sens[k];
-    p.btn('library', 928, 630, 300, 120, 'Knihovna', { size: 38, sub: app.libPin ? 'skladby' : 'na PIN' });
+    p.btn('library', 928, 630, 300, 120, 'Moje skladby', { size: 34, sub: `${app.libItems().length} skladeb` });
     p.btn('settings', 52, 630, 860, 120, 'Citlivost úderů a nastavení', {
       size: 38,
       sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone}`,
@@ -257,10 +257,11 @@ export function makePanels(app) {
   // knihovna skladeb: PIN klávesnice → seznam skladeb ze serveru
   P.lib = new Panel(1280, 984, 0.84, (g, p) => {
     glass(g, 1280, 984);
-    text(g, 'Knihovna skladeb', 52, 92, 54, { weight: 900 });
-    if (app.libStatus) text(g, app.libStatus, 1228, 88, 26, { align: 'right', color: '#9fd0ff', weight: 600 });
-    if (!app.libPin) {
-      text(g, 'Zadej PIN', 640, 190, 34, { align: 'center', color: 'rgba(255,255,255,0.75)', weight: 600 });
+    text(g, 'Moje skladby', 52, 92, 54, { weight: 900 });
+    if (app.libStatus) text(g, app.libStatus.slice(0, 48), 1228, 88, 24, { align: 'right', color: '#9fd0ff', weight: 600 });
+    const items = app.libItems();
+    if (app.libKeypad || (!app.libPin && !items.length)) {
+      text(g, 'Zadej PIN knihovny', 640, 190, 34, { align: 'center', color: 'rgba(255,255,255,0.75)', weight: 600 });
       const n = app.pinEntry.length;
       for (let i = 0; i < 4; i++) {
         g.beginPath();
@@ -277,20 +278,19 @@ export function makePanels(app) {
       p.btn('libback', 52, 870, 300, 90, 'Zpět', { size: 36, weight: 800 });
       return;
     }
-    const songs = app.libSongs;
-    if (!songs) text(g, 'Načítám seznam…', 640, 300, 34, { align: 'center', color: 'rgba(255,255,255,0.7)', weight: 600 });
-    else if (!songs.length) {
-      text(g, 'Knihovna je zatím prázdná.', 640, 280, 36, { align: 'center', weight: 700 });
-      text(g, 'Skladby nahraješ na stránce mimo VR: tlačítko „Knihovna (PIN)“.', 640, 336, 26, { align: 'center', color: 'rgba(255,255,255,0.65)', weight: 500 });
+    if (!items.length) {
+      text(g, app.libPin && !app.libSongs ? 'Načítám seznam…' : 'Zatím žádné skladby.', 640, 280, 36, { align: 'center', weight: 700 });
+      text(g, 'Skladby nahraješ na stránce mimo VR: „Nahrát skladby (MP3)“.', 640, 336, 26, { align: 'center', color: 'rgba(255,255,255,0.65)', weight: 500 });
     } else {
       const per = 6;
-      const pages = Math.max(1, Math.ceil(songs.length / per));
+      const pages = Math.max(1, Math.ceil(items.length / per));
       const pg = Math.min(app.libPage, pages - 1);
-      songs.slice(pg * per, pg * per + per).forEach((sng, i) => {
+      items.slice(pg * per, pg * per + per).forEach((it, i) => {
         const idx = pg * per + i;
-        const cur = app.customTrack && app.customTrack.libUrl === sng.url;
-        const nm = sng.name.length > 46 ? sng.name.slice(0, 45) + '…' : sng.name;
-        p.btn('lib:' + idx, 52, 130 + i * 116, 1176, 104, nm, { size: 36, weight: 700, on: cur, sub: cur ? 'vybráno' : `${(sng.size / 1048576).toFixed(1)} MB` });
+        const cur = app.isCurrent(it);
+        const nm = it.name.length > 46 ? it.name.slice(0, 45) + '…' : it.name;
+        const sub = cur ? 'vybráno' : it.src === 'local' ? `v zařízení${it.bpm ? ' · ' + it.bpm + ' BPM' : ''}${it.dur ? ' · ' + fmtTime(it.dur) : ''}` : `knihovna · ${(it.size / 1048576).toFixed(1)} MB`;
+        p.btn('lib:' + idx, 52, 130 + i * 116, 1176, 104, nm, { size: 36, weight: 700, on: cur, sub });
       });
       if (pages > 1) {
         p.btn('libpg:-', 380, 870, 160, 90, '‹', { size: 56, disabled: pg === 0 });
@@ -299,7 +299,8 @@ export function makePanels(app) {
       }
     }
     p.btn('libback', 52, 870, 300, 90, 'Zpět', { size: 36, weight: 800 });
-    p.btn('liblock', 928, 870, 300, 90, 'Zamknout', { size: 32, weight: 700 });
+    if (app.libPin) p.btn('liblock', 928, 870, 300, 90, 'Zamknout', { size: 32, weight: 700 });
+    else p.btn('libunlock', 928, 870, 300, 90, 'Knihovna (PIN)', { size: 30, weight: 700 });
   }, { interactive: true });
 
   P.calib = new Panel(1024, 420, 0.78, (g) => {

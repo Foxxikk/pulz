@@ -378,13 +378,14 @@ export class FX {
     }
   }
 
-  text(kind, pos, extra, color) {
+  text(kind, pos, extra, color, style) {
     const o = this.texts[this.ti];
     this.ti = (this.ti + 1) % this.texts.length;
     o.active = true;
     o.t = 0;
-    o.life = 0.75;
-    o.vy = 0.35;
+    o.life = style === 'big' ? 1.1 : 0.75;
+    o.vy = style === 'score' ? 0.55 : 0.35;
+    o.sc = style === 'score' ? 0.42 : style === 'big' ? 1.6 : 0.6;
     if (extra != null) {
       const g = o.own.g, c = o.own.canvas;
       g.clearRect(0, 0, c.width, c.height);
@@ -404,7 +405,7 @@ export class FX {
     o.mat.needsUpdate = true;
     o.mesh.visible = true;
     o.mesh.position.copy(pos);
-    o.mesh.scale.setScalar(0.6);
+    o.mesh.scale.setScalar(o.sc);
     o.mesh.lookAt(this.camPos);
   }
 
@@ -513,7 +514,7 @@ export class FX {
       o.mesh.position.y += o.vy * dt;
       o.vy *= 1 - dt * 3;
       const sc = k < 0.15 ? 0.6 + (k / 0.15) * 0.5 : 1.1 - (k - 0.15) * 0.15;
-      o.mesh.scale.setScalar(sc);
+      o.mesh.scale.setScalar(sc * ((o.sc || 0.6) / 0.6));
       o.mat.opacity = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
       o.mesh.lookAt(camPos);
     }

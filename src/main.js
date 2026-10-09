@@ -1,7 +1,7 @@
 // PULZ – hlavní aplikace: renderer, režimy (PC / VR), tok obrazovek, ovládání prstem, smyčka
 import * as THREE from 'three';
 import { TRACKS, DIFFS, DEFAULT_SETTINGS, COL, ENVS, AMB } from './config.js';
-import { makeTrack, saveCustom, loadCustom, saveVideo, loadVideo } from './songs.js';
+import { makeTrack, saveCustom, loadCustom, saveVideo, loadVideo, listLocal, addLocal, setLocalLib, getLocal, delLocal } from './songs.js';
 import { Env } from './env.js';
 import { Hands, J } from './hands.js';
 import { TargetPool } from './targets.js';
@@ -33,6 +33,8 @@ class App {
     this.hurt = 0;
     this.comboPop = 0;
     this.libPin = savedPin();
+    this.localSongs = [];
+    this.libKeypad = false;
     this.spkInit = false;
     this.libSongs = null;
     this.libStatus = '';
@@ -166,11 +168,17 @@ class App {
   // vlastní skladba a video (uložené jen v zařízení)
   async initCustom() {
     try {
+      this.localSongs = await listLocal();
+      this.renderDomLib && this.renderDomLib();
+      if (this.libPin) this.libRefresh();
+    } catch (e) {}
+    try {
       const rec = await loadCustom();
       if (rec && rec.data) {
         this.songStatus = 'Načítám vlastní skladbu…';
         this.customTrack = await makeTrack(rec.name, rec.data, (m) => (this.songStatus = m), rec.an);
         this.customTrack.libUrl = rec.libUrl || null;
+        this.customTrack.localId = rec.localId || null;
         this.songStatus = '';
         this.updateDomStatus();
       }
@@ -188,27 +196,109 @@ class App {
     } catch (e) {}
   }
 
-  async onSongFile(file) {
-    if (!file) return;
-    this.songStatus = 'Načítám ' + file.name + '…';
-    this.updateDomStatus();
-    try {
-      const data = await file.arrayBuffer();
-      const t = await makeTrack(file.name, data, (m) => {
-        this.songStatus = m;
+  // nahrání skladeb: uloží se do seznamu v zařízení a (s PINem) i do knihovny na serveru → uvidíš je i na Questu
+  async onSongFiles(files) {
+    files = [...(files || [])];
+    if (!files.length) return;
+    let last = null;
+    for (const file of files) {
+      this.songStatus = 'Načítám ' + file.name + '…';
+      this.updateDomStatus();
+      try {
+        const data = await file.arrayBuffer();
+        const t = await makeTrack(file.name, data, (m) => {
+          this.songStatus = `${file.name}: ${m}`;
+          this.updateDomStatus();
+        });
+        t.localId = await addLocal(file.name, data, t.an);
+        last = { t, data, name: file.name };
+        va('custom_song', { bpm: t.bpm });
+        if (this.libPin) this.syncUpload(t.localId, file);
+      } catch (e) {
+        console.error(e);
+        this.songStatus = file.name + ': skladbu se nepodařilo načíst (zkus MP3).';
         this.updateDomStatus();
+      }
+    }
+    this.localSongs = await listLocal();
+    if (last) {
+      this.customTrack = last.t;
+      this.settings.track = 'custom';
+      this.saveSettings();
+      await saveCustom(last.name, last.data, last.t.an, null, last.t.localId);
+      this.songStatus = this.libPin ? '' : 'Uloženo v tomto zařízení. Aby skladby byly i na Questu, odemkni „Moje skladby“ PINem.';
+    }
+    this.updateDomStatus();
+    this.renderDomLib();
+  }
+
+  // nahrát skladbu z tohoto zařízení do knihovny na serveru (na pozadí)
+  async syncUpload(localId, fileOrData, name) {
+    try {
+      let f = fileOrData;
+      if (!(f instanceof Blob)) f = new File([fileOrData], name || 'skladba.mp3', { type: 'audio/mpeg' });
+      this.libStatus = 'Nahrávám do knihovny: ' + f.name;
+      this.renderDomLib();
+      const r = await uploadSong(this.libPin, f, (k) => {
+        this.libStatus = `Nahrávám do knihovny: ${f.name} ${Math.round(k * 100)} %`;
+        this.renderDomLib();
       });
+      await setLocalLib(localId, r.url);
+      this.localSongs = await listLocal();
+      if (this.customTrack && this.customTrack.localId === localId) this.customTrack.libUrl = r.url;
+      this.libStatus = 'V knihovně ✓ ' + f.name;
+      this.libSongs = null;
+      await this.libRefresh();
+    } catch (e) {
+      console.error(e);
+      this.libStatus = 'Nahrání do knihovny se nepovedlo';
+      this.renderDomLib();
+    }
+  }
+
+  // po odemknutí PINem: skladby jen v zařízení nahrát i do knihovny
+  async syncLocalToLib() {
+    for (const x of this.localSongs.filter((y) => !y.libUrl)) {
+      const rec = await getLocal(x.id);
+      if (rec && rec.data) await this.syncUpload(x.id, rec.data, (rec.name || x.name).replace(/(\.mp3)?$/i, '.mp3'));
+    }
+  }
+
+  // společný seznam: skladby v zařízení + knihovna (ty, které v zařízení nejsou)
+  libItems() {
+    const local = this.localSongs.map((x) => ({ src: 'local', id: x.id, name: x.name, bpm: x.bpm, dur: x.dur, libUrl: x.libUrl }));
+    const have = new Set(local.map((x) => x.libUrl).filter(Boolean));
+    const lib = (this.libPin && this.libSongs ? this.libSongs : []).filter((x) => !have.has(x.url)).map((x) => ({ src: 'lib', url: x.url, name: x.name, size: x.size }));
+    return local.concat(lib);
+  }
+  isCurrent(item) {
+    const c = this.customTrack;
+    if (!c) return false;
+    return item.src === 'local' ? c.localId === item.id : c.libUrl === item.url;
+  }
+  async selectItem(item) {
+    if (item.src === 'lib') return this.libSelect(item);
+    if (this.libBusy) return;
+    this.libBusy = true;
+    try {
+      this.libStatus = 'Načítám ' + item.name + '…';
+      this.renderDomLib();
+      const rec = await getLocal(item.id);
+      const t = await makeTrack(rec.name, rec.data, (m) => (this.libStatus = m), rec.an);
+      t.localId = item.id;
+      t.libUrl = item.libUrl || null;
       this.customTrack = t;
       this.settings.track = 'custom';
       this.saveSettings();
-      await saveCustom(file.name, data, t.an);
-      this.songStatus = '';
-      va('custom_song', { bpm: t.bpm });
+      await saveCustom(rec.name, rec.data, t.an, t.libUrl, item.id);
+      this.libStatus = 'Vybráno: ' + t.name;
     } catch (e) {
       console.error(e);
-      this.songStatus = 'Skladbu se nepodařilo načíst (zkus MP3).';
+      this.libStatus = 'Skladbu se nepodařilo načíst';
     }
+    this.libBusy = false;
     this.updateDomStatus();
+    this.renderDomLib();
   }
 
   async onVideoFile(file) {
@@ -246,7 +336,15 @@ class App {
     this.libPin = pin;
     this.libSongs = null;
     await this.libRefresh();
-    if (this.libPin) rememberPin(pin);
+    if (this.libPin) {
+      rememberPin(pin);
+      this.libKeypad = false;
+      if (/^Uloženo v tomto/.test(this.songStatus || '')) {
+        this.songStatus = '';
+        this.updateDomStatus();
+      }
+      this.syncLocalToLib();
+    }
     return !!this.libPin;
   }
 
@@ -273,10 +371,12 @@ class App {
       const t = await makeTrack(song.name, c.data, st, c.an);
       t.libUrl = song.url;
       if (!c.an) await cacheSong(song.url, c.data, t.an);
+      t.localId = await addLocal(song.name, c.data, t.an, song.url);
+      this.localSongs = await listLocal();
       this.customTrack = t;
       this.settings.track = 'custom';
       this.saveSettings();
-      await saveCustom(song.name, c.data, t.an, song.url);
+      await saveCustom(song.name, c.data, t.an, song.url, t.localId);
       st('');
       this.libStatus = 'Vybráno: ' + t.name;
       va('library_song', { bpm: t.bpm });
@@ -292,6 +392,7 @@ class App {
 
   showLibrary() {
     this.screen = 'library';
+    this.libKeypad = false;
     this.hideAll();
     const p = this.panels.lib;
     p.mesh.visible = true;
@@ -353,50 +454,78 @@ class App {
     if (!box) return;
     const unlocked = !!this.libPin;
     document.getElementById('lib-pinform').hidden = unlocked;
+    document.getElementById('lib-hint').hidden = unlocked;
     document.getElementById('lib-main').hidden = !unlocked;
     document.getElementById('lib-status').textContent = this.libStatus || '';
-    const ul = document.getElementById('lib-list');
-    ul.textContent = '';
-    if (!unlocked) return;
-    const songs = this.libSongs;
-    if (!songs) {
-      ul.textContent = 'Načítám…';
-      return;
-    }
-    if (!songs.length) {
-      ul.textContent = 'Knihovna je prázdná – nahraj první skladbu.';
-      return;
-    }
-    songs.forEach((sng) => {
+    const row = (it) => {
       const li = document.createElement('div');
       li.className = 'lib-row';
-      const cur = this.customTrack && this.customTrack.libUrl === sng.url;
+      const cur = this.isCurrent(it);
       const nm = document.createElement('span');
-      nm.textContent = sng.name + (cur ? '  ✓' : '');
+      const tag = it.src === 'local' ? (it.libUrl ? ' · i v knihovně' : ' · jen v zařízení') : '';
+      nm.textContent = it.name + (cur ? '  ✓' : '');
+      nm.title = it.name + tag;
       const sel = document.createElement('button');
       sel.textContent = cur ? 'Vybráno' : 'Vybrat';
       sel.className = 'sec';
       sel.disabled = !!this.libBusy;
-      sel.addEventListener('click', () => this.libSelect(sng));
+      sel.addEventListener('click', () => this.selectItem(it));
       const del = document.createElement('button');
       del.textContent = 'Smazat';
       del.className = 'del';
       del.addEventListener('click', async () => {
         if (del.dataset.armed !== '1') {
           del.dataset.armed = '1';
-          del.textContent = 'Opravdu?';
+          del.textContent = it.src === 'local' && it.libUrl ? 'Ze zařízení?' : 'Opravdu?';
           return;
         }
         try {
-          await deleteSong(this.libPin, sng.url);
+          if (it.src === 'local') {
+            await delLocal(it.id);
+            this.localSongs = await listLocal();
+          } else {
+            await deleteSong(this.libPin, it.url);
+            await this.libRefresh();
+          }
         } catch (e) {
           this.libStatus = e.message;
         }
-        await this.libRefresh();
+        this.renderDomLib();
       });
       li.append(nm, sel, del);
-      ul.append(li);
-    });
+      return li;
+    };
+    const items = this.libItems();
+    const loc = document.getElementById('lib-local');
+    loc.textContent = '';
+    const local = items.filter((x) => x.src === 'local');
+    const lib = items.filter((x) => x.src === 'lib');
+    if (local.length) {
+      const h = document.createElement('div');
+      h.className = 'lib-sec';
+      h.textContent = 'V tomto zařízení';
+      loc.append(h, ...local.map(row));
+    } else {
+      const p = document.createElement('div');
+      p.className = 'muted';
+      p.style.cssText = 'font-size:14px;opacity:.7';
+      p.textContent = 'V tomto zařízení zatím nic – nahraj skladby tlačítkem „Nahrát skladby (MP3)“.';
+      loc.append(p);
+    }
+    const ul = document.getElementById('lib-list');
+    ul.textContent = '';
+    if (!unlocked) return;
+    const h = document.createElement('div');
+    h.className = 'lib-sec';
+    h.textContent = 'Další v knihovně';
+    ul.append(h);
+    if (!this.libSongs) ul.append('Načítám…');
+    else if (!lib.length) {
+      const p = document.createElement('div');
+      p.style.cssText = 'font-size:14px;opacity:.7';
+      p.textContent = 'Všechny skladby z knihovny už máš v tomto zařízení.';
+      ul.append(p);
+    } else ul.append(...lib.map(row));
   }
 
   updateDomStatus() {
@@ -492,7 +621,11 @@ class App {
       this.ensureAudio();
       fv.click();
     });
-    fs.addEventListener('change', () => this.onSongFile(fs.files[0]));
+    fs.addEventListener('change', () => {
+      const f = [...fs.files];
+      fs.value = '';
+      this.onSongFiles(f);
+    });
     this.initDomLib();
     fv.addEventListener('change', () => this.onVideoFile(fv.files[0]));
     this.updateDomStatus();
@@ -808,7 +941,6 @@ class App {
   setupHud() {
     const c = this.calibData;
     if (this.audio) this.audio.setSpeakers(c.cx, c.headH, c.cz);
-    this.env.setSpeakers && this.env.setSpeakers(c.cx, c.headH, c.cz);
     this.dispScore = 0;
     this.lastComboShown = 0;
     // HUD
@@ -935,9 +1067,10 @@ class App {
     else if (id === 'libback') this.showMenu();
     else if (id === 'liblock') this.libLock();
     else if (id.startsWith('libpg:')) this.libPage = Math.max(0, this.libPage + (id.endsWith('+') ? 1 : -1));
+    else if (id === 'libunlock') this.libKeypad = true;
     else if (id.startsWith('lib:')) {
-      const sng = this.libSongs && this.libSongs[+id.slice(4)];
-      if (sng) this.libSelect(sng);
+      const it = this.libItems()[+id.slice(4)];
+      if (it) this.selectItem(it);
     } else if (id.startsWith('key:')) {
       const k = id.slice(4);
       this.libStatus = '';
@@ -1154,19 +1287,29 @@ class App {
       const pq = Math.round(this.beatPulse * 4);
       this.panels.info.refresh(`${Math.ceil(g.duration - g.t)}|${Math.round(g.kcal)}|${Math.round(this.dispScore)}|${g.hits}|${g.misses}|${Math.round((g.t / g.duration) * 200)}|${pq}|${this.settings.showFps ? this.fps : ''}`);
       this.panels.combo.refresh(`${g.combo}|${g.mult}`);
+      // aura rukavic + zlaté jiskry z pěstí při vysokém násobiči
+      const aura = (g.mult - 1) / 3;
+      for (const side of ['L', 'R']) {
+        this.hands.gloves[side].aura = aura;
+        const h = this.hands.get(side);
+        if (g.mult >= 3 && h.valid && Math.random() < (g.mult - 2) * 0.5) {
+          const f = h.fist;
+          this.fx.emit(f.x + (Math.random() - 0.5) * 0.06, f.y + (Math.random() - 0.5) * 0.06, f.z + (Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.2, 0.25 + Math.random() * 0.3, (Math.random() - 0.5) * 0.2, 1, 0.75 + Math.random() * 0.2, 0.25, 0.9, 0.5, 0.008, 0.5);
+        }
+      }
       if (g.combo > this.lastComboShown) this.comboBump = 1;
       this.lastComboShown = g.combo;
       this.comboBump = Math.max(0, this.comboBump - dt * 6);
       this.comboPop = Math.max(0, this.comboPop - dt * 2);
       this.panels.combo.mesh.scale.setScalar(1 + this.comboPop * 0.25 + this.comboBump * 0.06 + this.beatPulse * 0.03);
     }
-    if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode + this.envStatus);
+    if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode + this.envStatus + '|' + this.localSongs.length + '|' + (this.libSongs ? this.libSongs.length : -1) + '|' + (this.customTrack ? this.customTrack.name : ''));
     if (this.screen === 'settings') {
       if (this.game.practiceMode) this.game.updatePractice(now, dt, this.hands, this.head);
       this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode);
     }
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
-    if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.customTrack ? this.customTrack.libUrl : ''].join('|'));
+    if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.libKeypad ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.localSongs.length, this.customTrack ? this.customTrack.localId + this.customTrack.libUrl : ''].join('|'));
     if (this.screen === 'results') this.panels.results.refresh('r' + (this.lastResult ? this.lastResult.score : 0));
 
     // náraz do bariéry
@@ -1175,10 +1318,6 @@ class App {
     this.hurtMesh.position.copy(this.head);
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
-    if (!this.spkInit && this.env.setSpeakers) {
-      this.spkInit = true;
-      this.env.setSpeakers(0, 1.62, 0);
-    }
     if (this.audio) {
       const hp = this.mode === 'vr' ? this.head : this.camera.position;
       const hq = this.mode === 'vr' ? this.headQ : this.camera.quaternion;
@@ -1186,11 +1325,12 @@ class App {
       _lu.set(0, 1, 0).applyQuaternion(hq);
       this.audio.setListener(hp.x, hp.y, hp.z, _lf.x, _lf.y, _lf.z, _lu.x, _lu.y, _lu.z);
     }
+    if (this.screen !== 'play') this.hands.gloves.L.aura = this.hands.gloves.R.aura = 0;
     this.env.beat = this.screen === 'play' ? this.beatPulse : this.audio && this.audio.lounge ? 0.25 + 0.25 * Math.sin(now * 4.4) : 0;
     this.env.playing = this.screen === 'play';
     this.env.streamMat.uniforms.uPx.value = this.renderer.domElement.height;
     this.env.update(dt);
-    this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0);
+    this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0, this.screen === 'play' ? this.game.mult : 1);
     this.fx.splashOn = this.env.splash;
     this.fx.update(dt, this.head);
     this.renderer.render(this.scene, this.camera);

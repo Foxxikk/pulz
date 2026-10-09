@@ -18,7 +18,7 @@ const shot = async (name, pick) => {
     a.calibData = { headH: 1.62, cx: 0, cz: 0, reach: 0.6, hitDist: 0.5 };
     a.game.start(chart, tr, 'mid', a.calibData);
     const b = chart.events.find((e) => e.kind === 'b' && e.type.startsWith(pick));
-    const t0 = b.t - 0.4;
+    const t0 = b.t - (pick === 'arc' ? 0.15 : 0.4);
     a.hands.begin(); a.hands.end(t0, 0.016, a.head);
     for (let t = Math.max(0, t0 - 2.5); t <= t0; t += 0.05) a.game.update(t, 0.05, a.hands, { x: 0, y: 1.62, z: 0 });
     a.env.playing = true; a.env.beat = 0.8; for (let k = 0; k < 30; k++) a.env.update(0.05);
@@ -30,6 +30,6 @@ const shot = async (name, pick) => {
   await page.screenshot({ path: OUT + '/' + name + '.png' });
   console.log(name, info);
 };
-await shot('spiral', 'lean');
+await shot('spiral', 'arc');
 await shot('wall', 'wall');
 await browser.close();

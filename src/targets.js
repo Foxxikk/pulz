@@ -12,6 +12,7 @@ const SEG = 6;
 const DEPTH = 0.056;
 const DOME = 0.055; // výška vypouklého čela
 const TILT = 0.72; // natočení hooku/zvedáku proti pěsti (rad)
+const _goldC = new THREE.Color(0xffc23a), _whiteC = new THREE.Color(1, 1, 1);
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3(), _e = new THREE.Euler();
 
 function faceTexture(color, gold) {
@@ -201,6 +202,7 @@ export class TargetPool {
       };
     };
     this.mats = { L: mk(COL.L), R: mk(COL.R), B: mk(COL.gold, true) };
+    this.sideBase = { L: this.mats.L.side.emissive.clone(), R: this.mats.R.side.emissive.clone() };
     this.wingMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.85, metalness: 0.1, roughness: 0.35 });
     this.pool = [];
     for (let i = 0; i < 26; i++) this.pool.push(this.make());
@@ -233,7 +235,7 @@ export class TargetPool {
       spin.add(w);
       wedges.push(w);
     }
-    const core = new THREE.Mesh(this.coreGeo, this.mats.L.core);
+    const core = new THREE.Mesh(this.coreGeo, this.mats.L.core.clone()); // vlastní materiál – jádro se „nabíjí“
     core.position.z = -0.006;
     spin.add(core);
     const glow = new THREE.Sprite(this.mats.L.glow.clone());
@@ -261,7 +263,8 @@ export class TargetPool {
     o.g.visible = true;
     const m = this.mats[side] || this.mats.L;
     for (const w of o.wedges) w.material = [m.face, m.side];
-    o.core.material = m.core;
+    o.core.material.color.copy(m.core.color);
+    o.coreBase = m.core.color;
     o.glow.material.color.copy(m.glow.color);
     o.g.scale.setScalar(1);
     o.spin.rotation.set(0, 0, Math.random() * 6.28);
@@ -294,10 +297,17 @@ export class TargetPool {
     o.g.visible = false;
   }
 
-  update(dt, beatPulse = 0) {
+  update(dt, beatPulse = 0, mult = 1) {
     this.time += dt;
     this.beatPulse = beatPulse;
-    for (const k of ['L', 'R', 'B']) this.mats[k].side.emissiveIntensity = 0.45 + beatPulse * 0.5;
+    // obruba terčů: pulz do rytmu, s násobičem combo přechází do zlata
+    const gold = Math.max(0, (mult - 1) / 3);
+    for (const k of ['L', 'R']) {
+      const sm = this.mats[k].side;
+      sm.emissive.copy(this.sideBase[k]).lerp(_goldC, gold * 0.75);
+      sm.emissiveIntensity = 0.45 + beatPulse * 0.5 + gold * 0.5;
+    }
+    this.mats.B.side.emissiveIntensity = 0.6 + beatPulse * 0.6;
     // létající výseče
     for (const p of this.pieces) {
       if (!p.active) continue;
@@ -319,16 +329,32 @@ export class TargetPool {
   }
 
   // r = zbývající čas do úderu, pop = náběh 0..1
+  // r = zbývající čas do úderu, pop = náběh 0..1
   animateTarget(o, r, pop, perfectWin, dt) {
-    o.spin.rotation.z += dt * 0.7;
+    // skládání: zdálky letí terč rozložený na dílky a roztočený, ~0,45 s před úderem dílky zacvaknou
+    const sp = Math.min(1, Math.max(0, (r - 0.45) / 0.9));
+    const e = sp * sp * (3 - 2 * sp);
+    for (let k = 0; k < o.wedges.length; k++) {
+      const w = o.wedges[k];
+      const c = this.wedgeGeos[k].c;
+      w.position.set(c.x * (1 + e * 1.1), c.y * (1 + e * 1.1), (k % 2 ? 0.05 : -0.05) * e);
+      w.rotation.set(0, 0, e * (k % 2 ? 0.7 : -0.7));
+    }
+    o.spin.rotation.z += dt * (0.6 + e * 6);
+    o.core.scale.setScalar(1 - e * 0.62);
     // jemné kolébání během letu
     o.g.rotation.x = Math.sin(this.time * 2.3 + o.wob) * 0.12;
     o.g.rotation.y = Math.cos(this.time * 1.9 + o.wob) * 0.12;
     const near = Math.max(0, 1 - Math.max(0, r) / 1.0);
     const perfect = Math.abs(r) < perfectWin ? 1 : 0;
+    // jádro se nabíjí a v perfektní chvíli zbělá
+    const ch = 0.35 + near * near * 1.6 + perfect * 0.8;
+    o.core.material.color.copy(o.coreBase).multiplyScalar(ch).lerp(_whiteC, perfect * 0.45);
+    // pulz do rytmu
+    o.orient.scale.setScalar(1 + this.beatPulse * 0.07 * (1 - e));
     o.glow.material.opacity = (0.25 + near * 0.35 + perfect * 0.3 + this.beatPulse * 0.15) * pop;
     o.glow.scale.setScalar(R * (3.0 + near * 0.8 + perfect * 0.8) * o.base);
-    if (o.wing.visible) o.wing.position.multiplyScalar(1); // (křídlo drží vedle terče)
+    if (o.wing.visible) o.wing.scale.setScalar(0.8 * (1 + this.beatPulse * 0.18));
   }
 
   // rozpad terče na výseče
@@ -417,7 +443,7 @@ export class TargetPool {
     return { g, mat, edgeMat, disc, arc, line, glows, wall, wallMat, frameMat, busy: false, kind: 'arc' };
   }
 
-  getBarrier(type) {
+  getBarrier(type, ang) {
     let o = this.barrierPool.find((p) => !p.busy);
     if (!o) {
       o = this.makeBarrier();
@@ -426,13 +452,14 @@ export class TargetPool {
     o.busy = true;
     o.g.visible = true;
     const b = BAR[type] || BAR.duck;
+    if (ang == null) ang = b.ang;
     o.kind = b.kind;
     const isWall = b.kind === 'wall';
     o.disc.visible = o.arc.visible = o.line.visible = !isWall;
     for (const sp of o.glows) sp.visible = !isWall;
     o.wall.visible = isWall;
     o.g.scale.setScalar(isWall ? 1 : 0.9);
-    o.g.rotation.set(0, 0, b.ang);
+    o.g.rotation.set(0, 0, ang);
     this.barrierLook(o, 0, false);
     return o;
   }

@@ -24,9 +24,9 @@ console.log('wrong pin →', await page.evaluate(() => [window.__app.libPin, doc
 await page.fill('#lib-pin', '4321');
 await page.click('#lib-pinform button');
 await page.waitForSelector('.lib-row');
-console.log('rows', await page.$$eval('.lib-row span', (e) => e.map((x) => x.textContent)));
+console.log('rows', await page.$$eval('#lib-list .lib-row span', (e) => e.map((x) => x.textContent)));
 await page.screenshot({ path: OUT + '/lib-dom.png' });
-await page.click('.lib-row button.sec');
+await page.click('#lib-list .lib-row button.sec');
 await page.waitForFunction(() => window.__app.customTrack && window.__app.customTrack.libUrl, null, { timeout: 120000 });
 console.log('selected', await page.evaluate(() => [window.__app.customTrack.name, window.__app.customTrack.bpm, window.__app.settings.track, localStorage.getItem('pulz.pin')]));
 // VR panel: zamknout, klávesnice

@@ -229,7 +229,8 @@ class Glove {
 
     // záblesk při zásahu
     this.flash = Math.max(0, this.flash - dt * 4);
-    this.glowMat.color.copy(this.baseColor).multiplyScalar(1 + this.flash * 1.5);
+    // aura: s násobičem combo rukavice víc září
+    this.glowMat.color.copy(this.baseColor).multiplyScalar(1 + this.flash * 1.5 + (this.aura || 0) * 0.9);
   }
 }
 

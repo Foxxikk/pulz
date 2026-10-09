@@ -10,7 +10,7 @@ await page.goto('http://127.0.0.1:8123/index.html');
 await page.waitForFunction(() => window.__app, null, { timeout: 30000 });
 const t0 = Date.now();
 await page.setInputFiles('#file-song', MP3);
-await page.waitForFunction(() => window.__app.customTrack && !window.__app.songStatus, null, { timeout: 120000 });
+await page.waitForFunction(() => window.__app.customTrack && !/Načítám|Dekóduji|Hledám/.test(window.__app.songStatus || ''), null, { timeout: 120000 });
 console.log('analysis s', (Date.now() - t0) / 1000, await page.evaluate(() => { const t = window.__app.customTrack; return JSON.stringify({ name: t.name, bpm: t.bpm, dur: t.duration.toFixed(1), beats: t.an.beats.length, track: window.__app.settings.track, status: document.getElementById('custom-status').textContent }); }));
 await page.waitForTimeout(1500);
 await page.screenshot({ path: OUT + '/v3_menu.png' });

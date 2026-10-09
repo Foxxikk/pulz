@@ -17,6 +17,13 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v8
+- **Moje skladby**: „Nahrát skladby (MP3)“ přidává do seznamu (i víc souborů najednou), nic se nepřepisuje. Seznam je na stránce i v menu ve VR („Moje skladby“). Po odemknutí PINem se skladby z tohoto zařízení samy nahrají do knihovny na serveru → uvidíš je i na Questu (a naopak).
+- **Plynulé spirály půlkruhů**: série 6–15 půlkruhů po půldobách, každý pootočený o 22,5° → hlava plynule opisuje oblouk z úklonu přes podřep na druhou stranu.
+- **Terče se skládají**: zdálky letí terč rozložený na dílky a roztočený, asi 0,45 s před úderem dílky zacvaknou do sebe. Jádro se při příletu nabíjí a v perfektní chvíli zbělá. Terč pulzuje do rytmu, při objevení blikne „portál“, s násobičem combo obruby terčů zlátnou.
+- **Nové efekty**: body létající z místa zásahu, při novém násobiči zlatá vlna po hladině a velké „×3“, rukavice s násobičem víc září a při ×3/×4 z pěstí odlétají zlaté jiskry.
+- Reproduktory ve scéně odstraněny (prostorový zvuk zůstává, jen bez viditelných beden).
+
 ## Novinky v7
 - **Prostorová hudba**: levý a pravý kanál hrají ze dvou reproduktorů ve scéně (vlevo a vpravo před hráčem) přes HRTF, s malým prostorem. Hudba zůstává na místě, i když otočíš hlavou. Reproduktory jsou vidět a membrány pulzují do rytmu. V nastavení přepínač **Hudba: prostorová / klasické stereo**.
 - **Basový zásah**: 808 „punch“ (sinus s prudkým pádem výšky, přebuzený, aby bas byl slyšet i z reproduktorů Questu) + tom s paličkou; hook a zvedák ještě hlubší a delší.

@@ -1,10 +1,11 @@
 // Herní logika tréninku: terče letí v rytmu, posuzování zásahů, skóre, combo, bariéry, kalorie
 import * as THREE from 'three';
-import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES, BAR } from './config.js';
+import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES, BAR, barOf } from './config.js';
 import { clamp } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
 const _qf = new THREE.Quaternion();
+const _qWater = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const C_L = new THREE.Color(COL.L), C_R = new THREE.Color(COL.R);
 
 export class Game {
@@ -51,9 +52,10 @@ export class Game {
     this.chart = chart;
     const bm = this.app.settings.barriers || 'all';
     this.events = chart.events
-      .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && (BAR[e.type] || BAR.duck).kind === 'arc'))
+      .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && barOf(e).kind === 'arc'))
       .map((e, i) => Object.assign({}, e, { i }));
     this.finaleDone = null;
+    this.prevMult = 1;
     this.duration = chart.duration;
     this.track = track;
     this.diff = DIFFS[diff];
@@ -142,8 +144,11 @@ export class Game {
     const c = this.calib;
     if (e.kind === 'b') {
       // střed bariéry = výchozí poloha hlavy posunutá proti normále o potřebný úhyb
-      const b = BAR[e.type] || BAR.duck;
-      const dist = b.dist === 'drop' ? this.app.settings.barrierDrop * (b.ang ? 0.85 : 1) : b.dist;
+      const b = barOf(e);
+      const drop = this.app.settings.barrierDrop;
+      const c2 = Math.cos(b.ang) ** 2;
+      // 'auto' (spirála): plynule mezi podřepem (0°) a úklonem (90°)
+      const dist = b.dist === 'drop' ? drop * (b.ang ? 0.85 : 1) : b.dist === 'auto' ? 0.12 + (drop - 0.12) * c2 : b.dist;
       const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
       return out.set(c.cx - nx * dist, c.headH - ny * dist, c.cz);
     }
@@ -189,10 +194,12 @@ export class Game {
       it.vis = this.app.targets.get(e.hand, e.type);
     } else {
       it.far.set((rr - 0.5) * 2, 0.8, 0);
-      it.vis = this.app.targets.getBarrier(e.type);
+      it.vis = this.app.targets.getBarrier(e.type, barOf(e).ang);
     }
     this.posAt(it, this.t, it.pos);
     it.prevPos.copy(it.pos);
+    // záblesk „portálu“ tam, kde se terč objeví
+    if (it.kind === 't' && e.i >= 0 && this.app.fx) this.app.fx.ring(it.pos, e.hand === 'L' ? C_L : e.hand === 'R' ? C_R : new THREE.Color(COL.gold), 0.1, 2.2, 0.45, 0.18, null, 0.8);
     this.items.push(it);
     return it;
   }
@@ -312,8 +319,11 @@ export class Game {
         // zvuk průletu: vrchol zvuku přesně v okamžiku průletu kolem hlavy, ze strany, kde bariéra je
         if (!it.flyPlayed && it.tHit - t <= 0.42 && app.audio) {
           it.flyPlayed = true;
-          const b = BAR[it.type] || BAR.duck;
-          app.audio.play(b.kind === 'wall' ? 'flybyWall' : 'flyby', { pan: -Math.sin(b.ang) * 0.75, gain: b.kind === 'wall' ? 1 : 0.85 });
+          // v husté spirále jen každý druhý (jinak by syčení splynulo)
+          if (!(it.e.si % 2 === 1)) {
+            const b = barOf(it.e);
+            app.audio.play(b.kind === 'wall' ? 'flybyWall' : 'flyby', { pan: -Math.sin(b.ang) * 0.75, gain: b.kind === 'wall' ? 1 : 0.85 });
+          }
         }
         // bariéra prochází rovinou hlavy
         const hz = head.z;
@@ -417,6 +427,10 @@ export class Game {
     this.mult = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
     const pts = Math.round(100 * mul * (1 + power * 0.5) * (dirOk ? 1 : 0.6) * this.mult);
     this.score += pts;
+    // létající body z místa zásahu
+    app.fx.text(null, _v.copy(it.pos).add(_a.set((it.side === 'L' ? -1 : 1) * 0.16, -0.08, 0)), '+' + pts, this.mult > 1 ? COL.goldCss : '#ffffff', 'score');
+    if (this.mult > (this.prevMult || 1)) this.multUp();
+    this.prevMult = this.mult;
     this.hits++;
     this.speedSum += spd;
     if (h.side === 'L') this.punchesL++;
@@ -458,6 +472,14 @@ export class Game {
     this.milestone();
   }
 
+  // nový násobič: zlatá vlna po hladině + velké „×N“
+  multUp() {
+    const app = this.app;
+    app.fx.ring(_v.set(this.calib.cx, 0.03, this.calib.cz), new THREE.Color(COL.gold), 0.8, 18, 1.6, 0.1, _qWater, 1);
+    app.fx.text(null, _v.set(this.calib.cx, this.calib.headH + 0.25, this.calib.cz - 1.4), '×' + this.mult, COL.goldCss, 'big');
+    app.audio && app.audio.play('combo', { gain: 0.7 });
+  }
+
   milestone() {
     const m = Math.floor(this.combo / 25) * 25;
     if (m >= 25 && m > this.lastMilestone) {
@@ -466,12 +488,14 @@ export class Game {
       app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 6, this.calib.cz - 22), [C_L, C_R, new THREE.Color(COL.gold)]);
       app.audio && app.audio.play('combo', { gain: 0.8 });
       app.comboPop = 1;
+      app.fx.ring(_v.set(this.calib.cx, 0.03, this.calib.cz), new THREE.Color(COL.R), 0.8, 22, 1.9, 0.08, _qWater, 0.9);
     }
   }
 
   breakCombo() {
     this.combo = 0;
     this.mult = 1;
+    this.prevMult = 1;
     this.lastMilestone = 0;
   }
 
@@ -496,7 +520,7 @@ export class Game {
 
   judgeBarrier(it, head) {
     const app = this.app;
-    const b = BAR[it.type] || BAR.duck;
+    const b = barOf(it.e);
     const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
     // hlava musí být na volné straně hrany (aspoň 1,5 cm)
     const marg = (head.x - it.hit.x) * nx + (head.y - it.hit.y) * ny;

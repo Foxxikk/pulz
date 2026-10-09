@@ -81,9 +81,9 @@ export async function makeTrack(name, arrayBuffer, onStatus, cachedAn) {
   };
 }
 
-export async function saveCustom(name, arrayBuffer, an, libUrl) {
+export async function saveCustom(name, arrayBuffer, an, libUrl, localId) {
   try {
-    await put('custom', { name, data: arrayBuffer, an, libUrl: libUrl || null });
+    await put('custom', { name, data: arrayBuffer, an, libUrl: libUrl || null, localId: localId || null });
   } catch (e) {
     console.warn('Uložení skladby se nepovedlo', e);
   }
@@ -106,4 +106,64 @@ export async function loadVideo() {
   } catch (e) {
     return null;
   }
+}
+
+// ---------- více vlastních skladeb v zařízení ----------
+// index: [{ id, name, bpm, dur, added, libUrl }]; data: 'my:<id>' → { name, data, an }
+export async function listLocal() {
+  try {
+    let idx = (await get('my:index')) || null;
+    if (!idx) {
+      // převod staré jediné skladby do seznamu
+      idx = [];
+      const old = await get('custom');
+      if (old && old.data) {
+        const id = 'm' + Date.now().toString(36);
+        await put('my:' + id, { name: old.name, data: old.data, an: old.an });
+        idx.push({ id, name: cleanName(old.name), bpm: old.an ? Math.round(old.an.bpm) : 0, dur: old.an ? old.an.duration : 0, added: Date.now(), libUrl: old.libUrl || null });
+      }
+      await put('my:index', idx);
+    }
+    return idx;
+  } catch (e) {
+    return [];
+  }
+}
+export async function addLocal(name, data, an, libUrl = null) {
+  const idx = await listLocal();
+  const nm = cleanName(name);
+  // stejná skladba (název + délka) se nepřidává dvakrát
+  const dup = idx.find((x) => x.name === nm && Math.abs((x.dur || 0) - (an ? an.duration : 0)) < 0.5);
+  if (dup) {
+    if (libUrl && !dup.libUrl) {
+      dup.libUrl = libUrl;
+      await put('my:index', idx);
+    }
+    return dup.id;
+  }
+  const id = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  await put('my:' + id, { name, data, an });
+  idx.unshift({ id, name: nm, bpm: an ? Math.round(an.bpm) : 0, dur: an ? an.duration : 0, added: Date.now(), libUrl });
+  await put('my:index', idx);
+  return id;
+}
+export async function setLocalLib(id, libUrl) {
+  const idx = await listLocal();
+  const x = idx.find((y) => y.id === id);
+  if (x) {
+    x.libUrl = libUrl;
+    await put('my:index', idx);
+  }
+}
+export async function getLocal(id) {
+  try {
+    return await get('my:' + id);
+  } catch (e) {
+    return null;
+  }
+}
+export async function delLocal(id) {
+  const idx = (await listLocal()).filter((x) => x.id !== id);
+  await put('my:index', idx);
+  await put('my:' + id, null);
 }

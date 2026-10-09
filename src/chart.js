@@ -130,9 +130,9 @@ export function buildChart(track, diffId, spb) {
 const SPIRAL_TYPE = { '-2': 'leanL', '-1': 'duckL', 0: 'duck', 1: 'duckR', 2: 'leanR' };
 const BAR_PLAN = {
   // pravděpodobnost bariérové figury ve frázi podle sekce
-  easy: { intro: 0, groove: 0.35, build: 0.45, drop: 0.25, break: 0.6, outro: 0, seq: 3, slalom: 2 },
-  mid: { intro: 0.1, groove: 0.4, build: 0.55, drop: 0.35, break: 0.75, outro: 0, seq: 5, slalom: 2 },
-  hard: { intro: 0.2, groove: 0.5, build: 0.7, drop: 0.45, break: 0.85, outro: 0, seq: 7, slalom: 3 },
+  easy: { intro: 0, groove: 0.35, build: 0.45, drop: 0.25, break: 0.6, outro: 0, seq: 6, slalom: 2 },
+  mid: { intro: 0.1, groove: 0.4, build: 0.55, drop: 0.35, break: 0.75, outro: 0, seq: 11, slalom: 2 },
+  hard: { intro: 0.2, groove: 0.5, build: 0.7, drop: 0.45, break: 0.85, outro: 0, seq: 15, slalom: 3 },
 };
 
 // phrases: [{ b: první doba fráze (8 dob), type }]; spbAt(b) = délka doby v s
@@ -148,15 +148,18 @@ function planBarriers(phrases, maxBeat, spbAt, diffId, R) {
     const kind = ph.type === 'break' || ph.type === 'build' ? 'spiral' : ph.type === 'drop' ? (R() < 0.7 ? 'slalom' : 'single') : R() < 0.45 ? 'single' : R() < 0.6 ? 'spiral' : 'wall';
     seqId++;
     if (kind === 'spiral') {
-      // půlkruhy za sebou, každý pootočený o 45° → hlava opisuje oblouk („prohnutí“)
-      const step = spb >= (diffId === 'easy' ? 0.6 : 0.42) && diffId !== 'easy' ? 1 : 2;
-      const len = Math.min(P.seq, Math.floor(7 / step) + 1);
+      // hustá spirála půlkruhů: každý pootočený o 22,5°, po půldobách → hlava plynule opisuje oblouk
+      const half = spb * 0.5 >= 0.2 && diffId !== 'easy';
+      const step = half ? 0.5 : 1;
+      const len = P.seq;
+      const STEP = Math.PI / 8;
       let a = 0, d = R() < 0.5 ? -1 : 1;
-      if (diffId !== 'easy' && R() < 0.4) a = d * 2; // někdy začne úklonem a jde přes podřep na druhou stranu
+      if (diffId !== 'easy' && R() < 0.5) a = -d * 4; // začne úklonem a přejde přes podřep na druhou stranu
+      const lim = diffId === 'easy' ? 3 : 4;
       for (let k = 0; k < len; k++) {
-        out.push({ kind: 'b', type: SPIRAL_TYPE[a], beat: ph.b + 1 + k * step, sx: 0, sy: 0, seq: seqId });
+        out.push({ kind: 'b', type: 'arc', ang: a * STEP, beat: ph.b + 1 + k * step, sx: 0, sy: 0, seq: seqId, si: k });
         let n = a + d;
-        if (Math.abs(n) > 2 || (diffId === 'easy' && Math.abs(n) > 1)) {
+        if (Math.abs(n) > lim) {
           d = -d;
           n = a + d;
         }
