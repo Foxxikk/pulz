@@ -389,10 +389,17 @@ export class FX {
     if (extra != null) {
       const g = o.own.g, c = o.own.canvas;
       g.clearRect(0, 0, c.width, c.height);
-      g.font = `900 80px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
+      // písmo zmenšit, aby se delší hláška vešla
+      let fs = 80;
+      g.font = `900 ${fs}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
+      const wdt = g.measureText(extra).width;
+      if (wdt > c.width - 24) {
+        fs = Math.max(30, Math.floor((fs * (c.width - 24)) / wdt));
+        g.font = `900 ${fs}px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif`;
+      }
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.lineWidth = 10;
+      g.lineWidth = fs / 8;
       g.strokeStyle = 'rgba(10,20,40,0.85)';
       g.strokeText(extra, c.width / 2, c.height / 2);
       g.fillStyle = color || '#fff';

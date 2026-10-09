@@ -170,6 +170,7 @@ export const ENVS = [
   { id: 'lauter_waterfall', name: 'Potok', desc: 'Lesní potok', yaw: 0, amb: [['creek', 0.9], ['birds', 0.3]] },
   { id: 'chinese_garden', name: 'Zahrada', desc: 'Jezírko s pagodou', yaw: -Math.PI / 2, amb: [['birds', 0.45], ['creek', 0.15]] },
   { id: 'radkow_lake', name: 'Pláž', desc: 'Klidné jezero s horami', yaw: 0, amb: [['creek', 0.3], ['birds', 0.3]] },
+  { id: 'night', name: 'Noc', file: 'radkow_lake', night: true, desc: 'Jezero s horami v noci', yaw: 0, amb: [['creek', 0.35]] },
   { id: 'proc', name: 'Město', desc: 'Kreslená řeka (bez stahování)', yaw: 0, amb: [['creek', 0.5]] },
 ];
 

@@ -11,6 +11,8 @@ import { Game } from './game.js';
 import { Bot } from './bot.js';
 import { AudioSys } from './audio.js';
 import { buildChart, buildChartFromAnalysis } from './chart.js';
+import { Coach, trainingTip } from './coach.js';
+import { Recorder, beatMap, loadChoreo, saveChoreo, chartFromChoreo } from './choreo.js';
 import { savedPin, rememberPin, listSongs, uploadSong, deleteSong, fetchSong, cacheSong } from './library.js';
 import { store, clamp, track as va } from './util.js';
 
@@ -33,6 +35,7 @@ class App {
     this.hurt = 0;
     this.comboPop = 0;
     this.libPin = savedPin();
+    this.coach = new Coach(this);
     this.localSongs = [];
     this.libKeypad = false;
     this.spkInit = false;
@@ -574,6 +577,7 @@ class App {
     return (t.structure.reduce((s, x) => s + x[1], 0) * 4 * 60) / t.bpm;
   }
   get currentTrack() {
+    if (this.runTrack) return this.runTrack;
     if (this.settings.track === 'custom' && this.customTrack) return this.customTrack;
     return TRACKS.find((t) => t.id === this.settings.track) || TRACKS[1];
   }
@@ -786,6 +790,8 @@ class App {
 
   showMenu() {
     this.screen = 'menu';
+    this.runTrack = null;
+    this.endT = null;
     this.demo = false;
     this.hideAll();
     const m = this.panels.menu;
@@ -855,20 +861,39 @@ class App {
     const h = this.head;
     const c = this.calibData || { headH: this.mode === 'vr' ? h.y : 1.62, cx: this.mode === 'vr' ? h.x : 0, cz: this.mode === 'vr' ? h.z : 0, reach: 0.58, hitDist: 0.46 };
     this.game.startAutoCal(c);
-    this.coachSay && this.coachSay('Kalibrace. Boxuj do terčů normálně, jako při hře.');
+    this.coach.say('Kalibrace. Boxuj do terčů normálně, jako při hře.', 1);
   }
   onAutoCalDone() {
+    if (!/nepovedla/.test(this.calMsg || '')) this.flag('autocal');
     if (this.mode === 'vr') this.placePanel(this.panels.settings, 0.55, -0.28, 0.42);
     else {
       this.panels.settings.mesh.position.set(0, 1.42, -0.62);
       this.panels.settings.mesh.lookAt(this.camera.position);
     }
     this.sfx('go');
-    this.coachSay && this.coachSay(/nepovedla/.test(this.calMsg) ? 'Kalibrace se nepovedla, zkus to znovu.' : 'Hotovo. Citlivost je nastavená podle tebe.');
+    this.coach.say(/nepovedla/.test(this.calMsg) ? 'Kalibrace se nepovedla, zkus to znovu.' : 'Hotovo. Citlivost je nastavená podle tebe.', 1);
   }
 
   // ---------- tok tréninku ----------
-  startFlow() {
+  // nový trénink (režim z menu); cont = pokračování stejného běhu (vytrvalost, znovu kalibrovat)
+  startFlow(cont = false) {
+    if (this.screen === 'play' || this.screen === 'pause' || this.screen === 'calib' || this.screen === 'warmup') return;
+    const S = this.settings;
+    if (!cont || !this.run) {
+      this.runTrack = null;
+      const mode = S.mode || 'train';
+      const first = this.currentTrack;
+      const list = [first];
+      if (mode === 'endurance') for (const t of TRACKS) if (t.id !== first.id) list.push(t);
+      this.run = { mode, list, idx: 0, tot: { score: 0, kcal: 0, time: 0, hits: 0, misses: 0 } };
+      this.runTrack = first;
+      if (mode === 'record') return this.startRecord ? this.startRecord(first) : null;
+      if (S.warmup !== false && this.mode === 'vr' && this.startWarmup) return this.startWarmup(() => this.startCalib());
+    }
+    this.startCalib();
+  }
+
+  startCalib() {
     const audio = this.ensureAudio();
     if (this.screen === 'play' || this.screen === 'pause' || this.screen === 'calib') return;
     this.demo = this.mode !== 'vr';
@@ -936,7 +961,15 @@ class App {
   beginPlay() {
     const audio = this.audio;
     const track = this.currentTrack;
-    const chart = track.custom ? buildChartFromAnalysis(track.an, track.phrases, this.settings.diff, track.seed) : buildChart(track, this.settings.diff, audio.spb(track));
+    const spbT = track.custom ? 60 / track.bpm : audio.spb(track);
+    const durT = track.custom ? track.duration : this.trackLen(track);
+    const recMode = this.run && this.run.mode === 'record';
+    const ch = !recMode && this.settings.useChoreo !== false ? loadChoreo(track) : null;
+    let chart;
+    if (recMode) chart = { events: [], duration: durT, targets: 0, barriers: 0 };
+    else if (ch && ch.events.length >= 8) chart = chartFromChoreo(ch, track, spbT, durT);
+    else chart = track.custom ? buildChartFromAnalysis(track.an, track.phrases, this.settings.diff, track.seed) : buildChart(track, this.settings.diff, spbT);
+    this.recorder = recMode ? new Recorder(this.calibData, beatMap(track, spbT)) : null;
     this.hideAll();
     this.game.start(chart, track, this.settings.diff, this.calibData);
     this.bot.reset();
@@ -948,6 +981,7 @@ class App {
       audio.startSong(track, audio.ctx.currentTime + 0.25);
     }
     audio.duckAmbient(true);
+    this.coach.reset();
     this.screen = 'play';
     if (this.mode === 'desktop') {
       this.yaw = 0;
@@ -986,6 +1020,175 @@ class App {
       fetch('/api/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec), keepalive: rec.items.length < 600 }).catch(() => {});
     } catch (e) {}
     g.rec = null;
+  }
+
+  // ---------- statistiky a postup ----------
+  addHistory(r, g, done) {
+    if (this.demo) return;
+    if (g.t < 20) return; // příliš krátké
+    const h = store.get('pulz.history', []);
+    h.push({ ts: Date.now(), track: r.trackName, diff: g.diff.id, mode: r.mode || 'train', score: r.score, acc: +r.acc.toFixed(3), kcal: +r.kcal.toFixed(1), time: Math.round(g.t), hits: r.hits, misses: r.misses, combo: r.maxCombo, grade: r.grade, done: !!done, failed: !!r.failed, boss: r.bossDown || 0 });
+    while (h.length > 600) h.shift();
+    store.set('pulz.history', h);
+    if (r.endurance && done && r.endurance.idx === r.endurance.n) this.flag('endurance');
+    if (r.mode === 'perfect' && done && !r.failed) this.flag('perfect');
+  }
+  flag(k) {
+    const f = store.get('pulz.flags', {});
+    f[k] = (f[k] || 0) + 1;
+    store.set('pulz.flags', f);
+  }
+  stats() {
+    const h = store.get('pulz.history', []);
+    const f = store.get('pulz.flags', {});
+    const day = (ts) => {
+      const d = new Date(ts);
+      return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    };
+    const days = new Set(h.map((x) => day(x.ts)));
+    // série dní v řadě (končí dnes nebo včera)
+    let streak = 0;
+    const d0 = new Date();
+    for (let k = 0; k < 400; k++) {
+      const d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - k);
+      if (days.has(day(d))) streak++;
+      else if (k > 0) break;
+    }
+    const week = [];
+    for (let k = 6; k >= 0; k--) {
+      const d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - k);
+      const kc = h.filter((x) => day(x.ts) === day(d)).reduce((a, x) => a + x.kcal, 0);
+      week.push({ d, kcal: kc });
+    }
+    const tot = { n: h.length, kcal: h.reduce((a, x) => a + x.kcal, 0), time: h.reduce((a, x) => a + x.time, 0) };
+    const best = [...h].sort((a, b) => b.score - a.score).slice(0, 3);
+    const maxCombo = h.reduce((a, x) => Math.max(a, x.combo || 0), 0);
+    const badges = [
+      ['První trénink', h.length >= 1],
+      ['10 tréninků', h.length >= 10],
+      ['50 tréninků', h.length >= 50],
+      ['Combo 100', maxCombo >= 100],
+      ['Známka S', h.some((x) => x.grade === 'S' && x.done)],
+      ['Bez chyby', !!f.perfect],
+      ['Vytrvalec', !!f.endurance],
+      ['Boss poražen', h.some((x) => x.boss > 0)],
+      ['1000 kcal', tot.kcal >= 1000],
+      ['3 dny v řadě', streak >= 3],
+      ['Týden v řadě', streak >= 7],
+      ['Kalibrace', !!f.autocal],
+    ];
+    return { h, streak, week, tot, best, badges };
+  }
+  statsSub() {
+    const h = store.get('pulz.history', []);
+    return h.length ? `${h.length} tréninků` : 'zatím nic';
+  }
+  showStats() {
+    this.screen = 'stats';
+    this.hideAll();
+    this.statsData = this.stats();
+    const p = this.panels.stats;
+    p.key = null;
+    p.mesh.visible = true;
+    if (this.mode === 'vr') this.placePanel(p, 0.55, -0.28, 0.42);
+    else {
+      p.mesh.position.set(0, 1.42, -0.62);
+      p.mesh.lookAt(this.camera.position);
+    }
+  }
+
+  // ---------- rozcvička a protažení ----------
+  startWarmup(next) {
+    this.startExercise('warm', [
+      { n: 'Kroužení rameny', h: 'Velké kruhy oběma rameny dozadu, uvolni krk.', d: 12 },
+      { n: 'Lehké direkty', h: 'Střídej ruce, lehce a uvolněně, bez plné síly.', d: 12 },
+      { n: 'Podřepy', h: 'Pomalé podřepy, záda rovně, kolena nad špičkami.', d: 12 },
+      { n: 'Úklony', h: 'Střídavě se ukloň doleva a doprava, ruce v gardě.', d: 12 },
+      { n: 'Poskoky na místě', h: 'Lehce na špičkách, ruce v gardě – jako boxer.', d: 12 },
+    ], next);
+  }
+  startStretch() {
+    this.startExercise('stretch', [
+      { n: 'Ramena', h: 'Natáhni pravou ruku přes hrudník a přitáhni ji levou. V půlce vyměň ruce.', d: 16 },
+      { n: 'Triceps', h: 'Ruku dej za hlavu, druhou rukou jemně přitlač loket. V půlce vyměň.', d: 16 },
+      { n: 'Boky', h: 'Ruce nad hlavu a pomalu se ukloň do strany. Střídej strany.', d: 14 },
+      { n: 'Stehna', h: 'Chyť nárt a přitáhni patu k hýždi, drž se rovně. V půlce vyměň nohy.', d: 16 },
+      { n: 'Dýchání', h: 'Zhluboka se nadechni, ruce nahoru – výdech, ruce dolů.', d: 10 },
+    ], () => {
+      this.coach.say('Hotovo! Výborná práce.', 1);
+      this.showMenu();
+    });
+  }
+  startExercise(kind, steps, next) {
+    this.hideAll();
+    this.screen = 'warmup';
+    this.warm = { kind, steps, i: 0, t: 0, next };
+    const p = this.panels.warm;
+    p.mesh.visible = true;
+    if (this.mode === 'vr') this.placePanel(p, 1.3, 0.05);
+    else {
+      p.mesh.position.set(0, 1.55, -1.1);
+      p.mesh.lookAt(0, 1.62, 0.32);
+    }
+    const au = this.ensureAudio();
+    au.startLounge(TRACKS.find((t) => t.id === 'rano'));
+    this.coach.say((kind === 'warm' ? 'Rozcvička. ' : 'Protažení. ') + steps[0].n + '.', 1);
+  }
+  updateWarm(dt) {
+    const w = this.warm;
+    if (!w) return;
+    w.t += dt;
+    const st = w.steps[w.i];
+    if (w.t >= st.d) this.warmStep(1);
+    else if (st.d - w.t < 3.05 && st.d - w.t > 2.95 && !w.beep) {
+      w.beep = true;
+      this.sfx('count');
+    }
+    this.panels.warm.refresh(w.kind + w.i + '|' + Math.ceil(st.d - w.t));
+  }
+  warmStep(k) {
+    const w = this.warm;
+    w.i += k;
+    w.t = 0;
+    w.beep = false;
+    if (w.i >= w.steps.length) return this.warmDone();
+    this.sfx('go');
+    this.coach.say(w.steps[w.i].n + '.', 1);
+  }
+  warmDone() {
+    const w = this.warm;
+    this.warm = null;
+    this.panels.warm.mesh.visible = false;
+    this.screen = 'menu';
+    if (w && w.next) w.next();
+  }
+
+  // editor choreografie: kalibrace → skladba bez terčů, záznam úderů
+  startRecord(track) {
+    this.coach.say('Nahráváme. Boxuj podle hudby, uhýbej podřepem a úklonem.', 1);
+    if (this.settings.warmup !== false && this.mode === 'vr' && this.startWarmup) return this.startWarmup(() => this.startCalib());
+    this.startCalib();
+  }
+  choreoFor(track) {
+    const c = loadChoreo(track);
+    return c && c.events.length >= 8 ? c : null;
+  }
+
+  // vytrvalost: další skladba / konec
+  enduranceNext() {
+    const run = this.run;
+    this.endT = null;
+    if (!run || run.idx + 1 >= run.list.length) return;
+    run.idx++;
+    this.runTrack = run.list[run.idx];
+    if (this.audio) this.audio.stopLounge(0.4);
+    this.screen = 'menu';
+    this.startFlow(true);
+  }
+  enduranceStop() {
+    this.endT = null;
+    if (this.lastResult && this.lastResult.endurance) this.lastResult.endurance.next = null;
+    this.panels.results.key = null;
   }
 
   setupHud() {
@@ -1028,6 +1231,39 @@ class App {
     }
     this.lastResult = r;
     r.reasons = g.missReasons();
+    r.tip = trainingTip(r, g.rec);
+    // režimy
+    const run = this.run;
+    if (run) {
+      run.tot.score += r.score;
+      run.tot.kcal += r.kcal;
+      run.tot.time += g.t;
+      run.tot.hits += r.hits;
+      run.tot.misses += r.misses;
+      r.mode = run.mode;
+      if (run.mode === 'perfect') {
+        r.failed = g.failAt != null;
+        r.progress = Math.min(1, g.t / g.duration);
+      }
+      if (run.mode === 'endurance') {
+        const next = done ? run.list[run.idx + 1] : null;
+        r.endurance = { idx: run.idx + 1, n: run.list.length, tot: { ...run.tot }, next: next ? next.name : null };
+        this.endT = next ? 9 : null;
+      }
+    }
+    if (run && run.mode === 'record' && this.recorder) {
+      const evs = this.recorder.events;
+      r.recorded = evs.filter((e) => e.kind === 't').length;
+      r.recordedBars = evs.filter((e) => e.kind === 'b').length;
+      if (r.recorded >= 8) {
+        saveChoreo(g.track, { events: evs, created: Date.now(), bpm: g.track.bpm });
+        this.settings.useChoreo = true;
+        this.settings.mode = 'train';
+        this.saveSettings();
+      }
+      this.recorder = null;
+      this.bigText = '';
+    } else this.addHistory && this.addHistory(r, g, done);
     this.uploadRec(g, r, done);
     if (this.audio) {
       this.audio.stopSong(done ? 0.8 : 0.3);
@@ -1118,6 +1354,15 @@ class App {
     }
     else if (id === 'settings') this.showSettings();
     else if (id === 'library') this.showLibrary();
+    else if (id.startsWith('mode:')) S.mode = id.slice(5);
+    else if (id === 'usechoreo') S.useChoreo = S.useChoreo === false;
+    else if (id === 'stats') this.showStats();
+    else if (id === 'statsback') this.showMenu();
+    else if (id === 'endnext') this.enduranceNext();
+    else if (id === 'warmnext') this.warmStep(1);
+    else if (id === 'warmend') this.warmDone();
+    else if (id === 'stretchgo') this.startStretch();
+    else if (id === 'endstop') this.enduranceStop();
     else if (id === 'libback') this.showMenu();
     else if (id === 'liblock') this.libLock();
     else if (id.startsWith('libpg:')) this.libPage = Math.max(0, this.libPage + (id.endsWith('+') ? 1 : -1));
@@ -1171,14 +1416,14 @@ class App {
       this.game.running = false;
       this.game.reset();
       this.screen = 'menu';
-      this.startFlow();
+      this.startFlow(true);
     } else if (id === 'recal') {
       this.audio.stopSong();
       this.game.running = false;
       this.game.reset();
       this.calibData = null;
       this.screen = 'menu';
-      this.startFlow();
+      this.startFlow(true);
     } else if (id === 'quit') this.finish(false);
     else if (id === 'again') {
       this.screen = 'menu';
@@ -1324,6 +1569,19 @@ class App {
 
     if (this.screen === 'play') {
       if (!simulated) this.game.update(t, dt, this.hands, this.head);
+      this.coach.update(this.game, t);
+      if (this.recorder) {
+        const ev = this.recorder.update(t, this.hands, this.head);
+        if (ev) {
+          const c = this.calibData;
+          if (ev.kind === 't') {
+            const f = this.hands.get(ev.hand).fist;
+            this.fx.burst(f, ev.hand === 'L' ? new THREE.Color(COL.L) : new THREE.Color(COL.R), _v.set(0, 0, -1), 0.4, false, ev.type !== 'jab');
+            this.audio.play(ev.type === 'jab' ? 'hit' : 'hitBig', { gain: 0.6, rate: ev.hand === 'L' ? 1.07 : 0.95 });
+            this.fx.text(null, _v.copy(f).add(_w.set(0, 0.15, 0)), { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' }[ev.type], '#ffffff', 'score');
+          } else this.fx.text(null, _v.set(c.cx, c.headH + 0.3, c.cz - 1.2), { duck: 'Podřep', duckL: 'Podřep vlevo', duckR: 'Podřep vpravo', leanL: 'Úklon vlevo', leanR: 'Úklon vpravo' }[ev.type], '#ffd36a', 'score');
+        }
+      }
       // odpočet v prvních dvou taktech
       const beat = Math.floor(t / this.spb);
       const words = { 4: '3', 5: '2', 6: '1', 7: 'BOXUJ!' };
@@ -1334,6 +1592,7 @@ class App {
       }
       if (this.game.track && this.game.track.custom) this.bigText = t < 2.5 ? this.game.track.name.slice(0, 22) : '';
       else this.bigText = t < 8 * this.spb ? wtxt : '';
+      if (this.recorder && !this.bigText) this.bigText = '● REC ' + this.recorder.events.length;
       this.panels.big.refresh(this.bigText);
       const g = this.game;
       // skóre se „načítá“ nahoru
@@ -1365,8 +1624,14 @@ class App {
       this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode + '|' + !!this.game.autocal + '|' + this.game.practiceIdx + '|' + (this.calMsg || ''));
     }
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
+    if (this.screen === 'stats') this.panels.stats.refresh('s');
+    if (this.screen === 'warmup') this.updateWarm(dt);
     if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.libKeypad ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.localSongs.length, this.customTrack ? this.customTrack.localId + this.customTrack.libUrl : ''].join('|'));
-    if (this.screen === 'results') this.panels.results.refresh('r' + (this.lastResult ? this.lastResult.score : 0));
+    if (this.screen === 'results' && this.endT != null) {
+      this.endT -= dt;
+      if (this.endT <= 0) this.enduranceNext();
+    }
+    if (this.screen === 'results') this.panels.results.refresh('r' + (this.lastResult ? this.lastResult.score : 0) + '|' + (this.endT != null ? Math.ceil(this.endT) : '') + '|' + (this.lastResult && this.lastResult.endurance ? this.lastResult.endurance.next : ''));
 
     // náraz do bariéry
     this.hurt = Math.max(0, this.hurt - dt * 2.5);
@@ -1384,6 +1649,11 @@ class App {
     if (this.screen !== 'play') this.hands.gloves.L.aura = this.hands.gloves.R.aura = 0;
     this.env.beat = this.screen === 'play' ? this.beatPulse : this.audio && this.audio.lounge ? 0.25 + 0.25 * Math.sin(now * 4.4) : 0;
     this.env.playing = this.screen === 'play';
+    const sec = this.screen === 'play' ? this.game.sectionAt(this.game.t) : 'menu';
+    if (sec !== this.lastSec) {
+      this.lastSec = sec;
+      this.env.setMood(sec);
+    }
     this.env.streamMat.uniforms.uPx.value = this.renderer.domElement.height;
     this.env.update(dt);
     this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0, this.screen === 'play' ? this.game.mult : 1);

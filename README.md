@@ -17,6 +17,14 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10
+- **Režimy** (v menu řádek „Režim“): *Trénink*, *Bez chyby* (první minutý terč, náraz do překážky nebo bomba = konec; výsledek ukáže, kolik skladby jsi zvládl), *Vytrvalost* (všechny skladby za sebou, mezi nimi 9 s pauza s odpočtem, celkový součet bodů, kalorií a času), *Nahrát choreo*.
+- **Editor choreografie**: zvol skladbu a režim „Nahrát choreo“ → hraje hudba bez terčů, ty boxuješ a hra zaznamená každý úder (druh podle směru, ruku, místo), podřepy a úklony; časy zarovná na půldoby. Pak se skladba hraje s tvou choreografií (v menu přepínač „Moje choreografie: ZAP/VYP“).
+- **Statistiky** (tlačítko v menu): počet tréninků, série dní v řadě, kalorie za týden (graf 7 dní), celkový čas, nejlepší výsledky a 12 odznaků.
+- **Trenér**: krátké povely během hry (start, polovina, posledních 30 s, upozornění na spirálu, zeď, bosse, bombu, dvojitý terč, povzbuzení po sérii chyb, milníky comba) – hlasem (pokud prohlížeč má český hlas), jinak textem; po tréninku tip podle záznamu (která ruka zaostává, proč se minulo…). Nastavení: hlas / jen text / vypnuto.
+- **Rozcvička a protažení**: před tréninkem ve VR 1 min rozcvičky (5 cviků s odpočtem, klidná hudba), po tréninku tlačítko „Protažení“ (5 cviků). Obojí jde v nastavení vypnout a kdykoli přeskočit.
+- **Prostředí podle hudby**: barva a jas scény se plynule mění podle části skladby (gradace teplejší, pauza chladnější, refrén s jemnými záblesky do rytmu); nové prostředí **Noc**.
+
 ## Novinky v9
 - **Automatická kalibrace** (Nastavení → Automatická kalibrace): 12 zkušebních terčů, hra změří tvůj švih, směr úderů a jak přesně trefuješ, a sama nastaví citlivost každého úderu i zónu zásahu.
 - **Nové typy terčů**: *dvojitý* (obě pěsti zároveň, spojené světelným paprskem, bonus za současný úder), *zakřivený let* (přiletí obloukem ze strany), *rychlá série* (menší terče v gradaci), *bomba* (červená ostnatá – netrefit, jinak −300 a konec comba), *boss* (velký zlatý terč uprostřed skladby, visí před tebou ~2 s a rozbíjí se po dílech rychlými údery).

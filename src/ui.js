@@ -145,9 +145,9 @@ function logo(g, x, y, s) {
 export function makePanels(app) {
   const P = {};
 
-  P.menu = new Panel(1280, 800, 0.84, (g, p) => {
+  P.menu = new Panel(1280, 930, 0.84, (g, p) => {
     const S = app.settings;
-    glass(g, 1280, 800);
+    glass(g, 1280, 930);
     logo(g, 52, 30, 84);
     text(g, 'PULZ', 152, 98, 76, { weight: 900 });
     text(g, 'Boxuj v rytmu · ovládání jen rukama', 390, 90, 28, { color: 'rgba(255,255,255,0.7)', weight: 500 });
@@ -183,14 +183,22 @@ export function makePanels(app) {
     DIFF_ORDER.forEach((d, i) => {
       p.btn('diff:' + d, 52 + i * 262, 492, 246, 104, DIFFS[d].name, { on: S.diff === d, size: 38 });
     });
-    p.btn('start', 852, 466, 376, 130, 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot' });
-    // nastavení
-    const sn = (k) => S.sens[k];
-    p.btn('library', 928, 630, 300, 120, 'Moje skladby', { size: 34, sub: `${app.libItems().length} skladeb` });
-    p.btn('settings', 52, 630, 860, 120, 'Citlivost úderů a nastavení', {
-      size: 38,
-      sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone}`,
+    const mode = S.mode || 'train';
+    const startSub = { train: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot', perfect: 'Bez chyby – jedna chyba a konec', endurance: 'Vytrvalost – všechny skladby', record: 'Nahrát choreografii' }[mode];
+    p.btn('start', 852, 466, 376, 130, mode === 'record' ? 'NAHRÁT' : 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: startSub });
+    // režim
+    text(g, 'Režim', 52, 628, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
+    const tk = app.currentTrack;
+    const hasRec = tk && app.choreoFor && app.choreoFor(tk);
+    if (hasRec) p.btn('usechoreo', 852, 600, 376, 44, S.useChoreo !== false ? 'Moje choreografie: ZAP' : 'Moje choreografie: VYP', { size: 22, weight: 700, on: S.useChoreo !== false, r: 14 });
+    [['train', 'Trénink'], ['perfect', 'Bez chyby'], ['endurance', 'Vytrvalost'], ['record', 'Nahrát choreo']].forEach(([id, nm], i) => {
+      p.btn('mode:' + id, 52 + i * 298, 652, 284, 96, nm, { on: mode === id, size: 32, weight: 800 });
     });
+    // nastavení / statistiky / skladby
+    const sn = (k) => S.sens[k];
+    p.btn('settings', 52, 778, 520, 120, 'Nastavení', { size: 38, sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone}` });
+    p.btn('stats', 588, 778, 312, 120, 'Statistiky', { size: 36, sub: app.statsSub ? app.statsSub() : '' });
+    p.btn('library', 916, 778, 312, 120, 'Moje skladby', { size: 34, sub: `${app.libItems().length} skladeb` });
   }, { interactive: true });
 
   P.settings = new Panel(1280, 1150, 0.84, (g, p) => {
@@ -327,6 +335,103 @@ export function makePanels(app) {
     p.btn('libback', 52, 870, 300, 90, 'Zpět', { size: 36, weight: 800 });
     if (app.libPin) p.btn('liblock', 928, 870, 300, 90, 'Zamknout', { size: 32, weight: 700 });
     else p.btn('libunlock', 928, 870, 300, 90, 'Knihovna (PIN)', { size: 30, weight: 700 });
+  }, { interactive: true });
+
+  // statistiky a odznaky
+  P.stats = new Panel(1280, 980, 0.84, (g, p) => {
+    glass(g, 1280, 980);
+    const st = app.statsData;
+    text(g, 'Statistiky', 52, 92, 54, { weight: 900 });
+    if (!st) return;
+    const tiles = [
+      ['Tréninků', String(st.tot.n)],
+      ['Dní v řadě', String(st.streak)],
+      ['Tento týden', Math.round(st.week.reduce((a, x) => a + x.kcal, 0)) + ' kcal'],
+      ['Celkem', Math.round(st.tot.time / 60) + ' min'],
+    ];
+    tiles.forEach(([k, v], i) => {
+      const x = 52 + i * 298;
+      roundRect(g, x, 120, 284, 130, 22);
+      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.fill();
+      text(g, k, x + 22, 160, 24, { color: 'rgba(255,255,255,0.6)', weight: 600 });
+      text(g, v, x + 22, 222, 46, { weight: 900 });
+    });
+    // kcal za posledních 7 dní (jedna řada, popisky hodnot)
+    text(g, 'Kalorie za posledních 7 dní', 52, 300, 28, { weight: 800 });
+    const mx = Math.max(50, ...st.week.map((x) => x.kcal));
+    const DN = ['ne', 'po', 'út', 'st', 'čt', 'pá', 'so'];
+    st.week.forEach((x, i) => {
+      const bx = 70 + i * 160, base = 520, hgt = (x.kcal / mx) * 170;
+      g.fillStyle = 'rgba(255,255,255,0.08)';
+      g.fillRect(bx, base, 120, 2);
+      if (hgt > 0.5) {
+        roundRect(g, bx + 30, base - hgt, 60, hgt, 6);
+        g.fillStyle = i === 6 ? '#ff9a2e' : '#3d8fff';
+        g.fill();
+        text(g, String(Math.round(x.kcal)), bx + 60, base - hgt - 12, 22, { align: 'center', weight: 700 });
+      }
+      text(g, i === 6 ? 'dnes' : DN[x.d.getDay()], bx + 60, base + 34, 22, { align: 'center', color: 'rgba(255,255,255,0.6)', weight: 600 });
+    });
+    // rekordy
+    text(g, 'Nejlepší výsledky', 52, 610, 28, { weight: 800 });
+    if (!st.best.length) text(g, 'Zatím žádný trénink ve VR.', 52, 656, 24, { color: 'rgba(255,255,255,0.55)' });
+    st.best.forEach((b, i) => {
+      const nm = b.track.length > 22 ? b.track.slice(0, 21) + '…' : b.track;
+      text(g, `${i + 1}. ${nm}`, 52, 656 + i * 40, 24, { weight: 700 });
+      text(g, `${fmtNum(b.score)} · ${b.grade}`, 600, 656 + i * 40, 24, { align: 'right', color: COL.goldCss, weight: 700 });
+    });
+    // odznaky
+    text(g, 'Odznaky', 660, 610, 28, { weight: 800 });
+    st.badges.forEach(([nm, ok], i) => {
+      const col = i % 3, row = Math.floor(i / 3);
+      const x = 660 + col * 192, y = 630 + row * 62;
+      roundRect(g, x, y, 182, 52, 16);
+      g.fillStyle = ok ? 'rgba(255,200,80,0.22)' : 'rgba(255,255,255,0.04)';
+      g.fill();
+      g.lineWidth = 2;
+      g.strokeStyle = ok ? 'rgba(255,213,74,0.8)' : 'rgba(255,255,255,0.12)';
+      g.stroke();
+      text(g, nm, x + 91, y + 34, 20, { align: 'center', weight: ok ? 800 : 500, color: ok ? '#ffe39a' : 'rgba(255,255,255,0.35)' });
+    });
+    p.btn('statsback', 52, 880, 300, 80, 'Zpět', { size: 34, weight: 800 });
+    text(g, `${st.badges.filter((b) => b[1]).length} / ${st.badges.length} odznaků`, 1228, 930, 24, { align: 'right', color: 'rgba(255,255,255,0.55)', weight: 600 });
+  }, { interactive: true });
+
+  // rozcvička / protažení
+  P.warm = new Panel(1280, 760, 0.9, (g, p) => {
+    glass(g, 1280, 760);
+    const w = app.warm;
+    if (!w) return;
+    const st = w.steps[w.i];
+    text(g, w.kind === 'warm' ? 'Rozcvička' : 'Protažení', 60, 96, 52, { weight: 900 });
+    text(g, `${w.i + 1} / ${w.steps.length}`, 1220, 92, 32, { align: 'right', color: 'rgba(255,255,255,0.6)', weight: 700 });
+    // odpočet v kruhu
+    const left = Math.max(0, st.d - w.t);
+    const cx = 1040, cy = 330, rr = 120;
+    g.lineWidth = 20;
+    g.strokeStyle = 'rgba(255,255,255,0.12)';
+    g.beginPath();
+    g.arc(cx, cy, rr, 0, Math.PI * 2);
+    g.stroke();
+    g.strokeStyle = w.kind === 'warm' ? '#ff9a2e' : '#5ee39a';
+    g.lineCap = 'round';
+    g.beginPath();
+    g.arc(cx, cy, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - left / st.d));
+    g.stroke();
+    g.lineCap = 'butt';
+    text(g, String(Math.ceil(left)), cx, cy + 26, 96, { align: 'center', weight: 900 });
+    text(g, st.n, 60, 260, 64, { weight: 900 });
+    wrap(g, st.h, 60, 330, 800, 46, 34, 'rgba(255,255,255,0.85)');
+    // průběh
+    w.steps.forEach((x, i) => {
+      g.beginPath();
+      g.arc(80 + i * 44, 520, 12, 0, Math.PI * 2);
+      g.fillStyle = i < w.i ? (w.kind === 'warm' ? '#ff9a2e' : '#5ee39a') : i === w.i ? '#ffffff' : 'rgba(255,255,255,0.2)';
+      g.fill();
+    });
+    p.btn('warmnext', 60, 600, 540, 120, 'Další cvik', { size: 40, weight: 800 });
+    p.btn('warmend', 640, 600, 580, 120, w.kind === 'warm' ? 'Přeskočit a boxovat' : 'Hotovo', { primary: true, size: 40, weight: 900 });
   }, { interactive: true });
 
   P.calib = new Panel(1024, 420, 0.78, (g) => {
@@ -478,12 +583,13 @@ export function makePanels(app) {
     p.btn('quit', 162, 480, 700, 100, 'Ukončit trénink', { size: 34 });
   }, { interactive: true });
 
-  P.results = new Panel(1280, 820, 0.84, (g, p) => {
-    glass(g, 1280, 820);
+  P.results = new Panel(1280, 900, 0.84, (g, p) => {
+    glass(g, 1280, 900);
     const r = app.lastResult;
     if (!r) return;
-    text(g, r.finished ? 'Trénink dokončen!' : 'Trénink ukončen', 60, 112, 64, { weight: 900 });
-    text(g, `${r.trackName} · ${r.diffName}`, 60, 164, 32, { color: 'rgba(255,255,255,0.65)', weight: 500 });
+    const title = r.mode === 'record' ? (r.recorded >= 8 ? `Choreografie uložena: ${r.recorded} úderů` : `Málo úderů (${r.recorded || 0}) – neuloženo`) : r.mode === 'perfect' ? (r.failed ? `Chyba v ${Math.round((r.progress || 0) * 100)} % skladby` : 'Bez jediné chyby!') : r.endurance ? `Skladba ${r.endurance.idx} z ${r.endurance.n}` : r.finished ? 'Trénink dokončen!' : 'Trénink ukončen';
+    text(g, title, 60, 112, 60, { weight: 900 });
+    text(g, `${r.trackName} · ${r.diffName}${r.mode === 'perfect' ? ' · Bez chyby' : r.endurance ? ' · Vytrvalost' : ''}`, 60, 164, 32, { color: 'rgba(255,255,255,0.65)', weight: 500 });
     // známka
     const gx = 1080, gy = 150;
     g.beginPath();
@@ -540,8 +646,26 @@ export function makePanels(app) {
     // proč se minulo (pomáhá s nastavením citlivosti)
     const rs = Object.entries(r.reasons || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     if (rs.length) text(g, 'Minuté: ' + rs.map(([k, n]) => `${k} ${n}×`).join(' · '), 60, 634, 23, { weight: 600, color: '#ffb08a' });
-    p.btn('again', 60, 660, 560, 120, 'Znovu', { primary: true, size: 52, weight: 900 });
-    p.btn('menu', 660, 660, 560, 120, 'Menu', { size: 46, weight: 800 });
+    // tip trenéra
+    if (r.mode === 'record') text(g, r.recorded >= 8 ? `Údery jsou zarovnané na doby${r.recordedBars ? `, k tomu ${r.recordedBars} úhybů` : ''}. V menu se teď hraje tvoje choreografie (lze vypnout).` : 'Nahraj aspoň 8 úderů.', 60, 672, 24, { weight: 600, color: '#9fd0ff' });
+    else if (r.tip) text(g, 'Trenér: ' + r.tip, 60, 672, 24, { weight: 600, color: '#9fd0ff' });
+    const en = r.endurance;
+    if (en) {
+      const tt = en.tot;
+      text(g, `Celkem: ${fmtNum(tt.score)} bodů · ${Math.round(tt.kcal)} kcal · ${fmtTime(tt.time)} · zásahy ${tt.hits}/${tt.hits + tt.misses}`, 60, 714, 26, { weight: 700, color: COL.goldCss });
+    }
+    const by = 750;
+    if (en && en.next) {
+      const sec = app.endT != null ? Math.max(0, Math.ceil(app.endT)) : '';
+      p.btn('endnext', 60, by, 700, 120, `Další: ${en.next.length > 22 ? en.next.slice(0, 21) + '…' : en.next}`, { primary: true, size: 40, weight: 900, sub: sec !== '' ? `začne za ${sec} s` : '' });
+      p.btn('endstop', 780, by, 440, 120, 'Ukončit sérii', { size: 36, weight: 800 });
+    } else {
+      const st = app.settings.stretch !== false && r.finished;
+      const w = st ? 370 : 560;
+      p.btn('again', 60, by, w, 120, r.mode === 'record' && r.recorded >= 8 ? 'Hrát ji' : 'Znovu', { primary: !st, size: 48, weight: 900 });
+      if (st) p.btn('stretchgo', 60 + w + 20, by, w, 120, 'Protažení', { primary: true, size: 44, weight: 900, sub: '1 minuta' });
+      p.btn('menu', st ? 60 + 2 * (w + 20) : 660, by, st ? 1160 - 2 * (w + 20) : 560, 120, 'Menu', { size: 44, weight: 800 });
+    }
   }, { interactive: true });
 
   P.hint = new Panel(1024, 200, 0.62, (g) => {

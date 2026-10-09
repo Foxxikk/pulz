@@ -26,6 +26,7 @@ export class Game {
     this.hits = 0;
     this.bombsOk = 0;
     this.bombsHit = 0;
+    this.bossDown = 0;
     this.pairHit = {};
     this.perfect = 0;
     this.great = 0;
@@ -58,6 +59,7 @@ export class Game {
       .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && barOf(e).kind === 'arc'))
       .map((e, i) => Object.assign({}, e, { i }));
     this.finaleDone = null;
+    this.failAt = null;
     this.prevMult = 1;
     this.duration = chart.duration;
     this.track = track;
@@ -126,6 +128,18 @@ export class Game {
     return out;
   }
 
+  // část skladby v čase t (podle nejbližší předchozí události)
+  sectionAt(t) {
+    const ev = this.events;
+    if (!ev || !ev.length) return 'groove';
+    let k = this.secIdx || 0;
+    if (k >= ev.length || ev[k].t > t) k = 0;
+    while (k + 1 < ev.length && ev[k + 1].t <= t) k++;
+    this.secIdx = k;
+    for (let j = k; j >= 0 && j > k - 6; j--) if (ev[j].section) return ev[j].section;
+    return 'intro';
+  }
+
   sens(type) {
     const S = this.app.settings;
     const lv = Math.max(1, Math.min(5, (S.sens && S.sens[type]) || 3));
@@ -155,6 +169,8 @@ export class Game {
       const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
       return out.set(c.cx - nx * dist, c.headH - ny * dist, c.cz);
     }
+    // nahraná choreografie: přesně tam, kde jsi udeřil
+    if (e.px != null) return out.set(c.cx + e.px, c.headH + e.py, c.cz - c.hitDist);
     const g = GEO[e.type];
     const sgn = e.hand === 'L' ? -1 : 1;
     let dy = g.dy;
@@ -388,7 +404,8 @@ export class Game {
     const dpm = this.duckLog.length * 3;
     const met = clamp(4 + ppm * 0.045 + dpm * 0.12, 4, 9.5);
     this.kcal += (met * 3.5 * app.settings.weight) / 200 / 60 * dt;
-    if (this.finaleDone != null && t > this.finaleDone + 2.2) app.finish(true);
+    if (this.failAt != null && t > this.failAt + 1.0) app.finish(false);
+    else if (this.finaleDone != null && t > this.finaleDone + 2.2) app.finish(true);
     else if (t >= this.duration && this.items.length === 0) app.finish(true);
     else if (t >= this.duration + 1.5) app.finish(true);
   }
@@ -489,6 +506,7 @@ export class Game {
     }
     const power = clamp((spd - 2) / 4, 0, 1);
     this.combo++;
+    app.coach && app.coach.onHit();
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.mult = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
     const pts = Math.round(100 * mul * (1 + power * 0.5) * (dirOk ? 1 : 0.6) * this.mult);
@@ -558,6 +576,7 @@ export class Game {
     it.t1 = t;
     this.bombsHit = (this.bombsHit || 0) + 1;
     this.breakCombo();
+    this.fail('bomba');
     this.score = Math.max(0, this.score - 300);
     const red = new THREE.Color(0xff2a3a);
     app.fx.burst(it.pos, red, _d.copy(h.vel).normalize(), 1, false, true);
@@ -606,6 +625,7 @@ export class Game {
       app.fx.burst(it.pos, new THREE.Color(COL.gold), _d, 1, true, true);
       app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 3, this.calib.cz - 10), [C_L, C_R, new THREE.Color(COL.gold)]);
       app.fx.text(null, _v.copy(it.pos).add(_a.set(0, 0.45, 0)), 'BOSS PORAŽEN!', COL.goldCss, 'big');
+      this.bossDown = (this.bossDown || 0) + 1;
       app.audio && app.audio.play('finish', { gain: 0.8 });
       this.log.push({ i: it.e.i, r: 'perfect', err: 0, spd, dirOk: true });
       this.recItem(it, 'boss', { s: +spd.toFixed(2) });
@@ -628,6 +648,7 @@ export class Game {
       app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 6, this.calib.cz - 22), [C_L, C_R, new THREE.Color(COL.gold)]);
       app.audio && app.audio.play('combo', { gain: 0.8 });
       app.comboPop = 1;
+      app.coach && app.coach.onMilestone(m);
       app.fx.ring(_v.set(this.calib.cx, 0.03, this.calib.cz), new THREE.Color(COL.R), 0.8, 22, 1.9, 0.08, _qWater, 0.9);
     }
   }
@@ -639,8 +660,18 @@ export class Game {
     this.lastMilestone = 0;
   }
 
+  // režim Bez chyby: první chyba ukončí trénink
+  fail(why) {
+    const app = this.app;
+    if (!app.run || app.run.mode !== 'perfect' || this.failAt != null) return;
+    this.failAt = this.t;
+    app.fx.text(null, _v.set(this.calib.cx, this.calib.headH + 0.2, this.calib.cz - 1.3), 'CHYBA – ' + why, '#ff6a5a', 'big');
+  }
+
   miss(it) {
     if (it.type === 'finale') this.finaleDone = this.t;
+    this.fail('minutý terč');
+    this.app.coach && this.app.coach.onMiss();
     it.state = 'miss';
     it.t1 = this.t;
     this.misses++;
@@ -681,6 +712,7 @@ export class Game {
     } else {
       it.state = 'struck';
       this.barriersHit++;
+      this.fail('náraz do překážky');
       this.breakCombo();
       app.audio && app.audio.play('barrierHit', { gain: 0.9 });
       app.fx.text('ouch', _v.copy(head).add(_a.set(0, 0.3, -0.9)));
@@ -903,6 +935,7 @@ export class Game {
       hits: this.hits,
       misses: this.misses,
       perfect: this.perfect,
+      bossDown: this.bossDown || 0,
       great: this.great,
       good: this.good,
       finale: this.finaleDone != null,

@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng } from './util.js';
 
 const _up = new THREE.Vector3(0, 1, 0);
+const _nightC = new THREE.Color(0.3, 0.36, 0.66);
 
 const FOG = new THREE.Color(0xcde8ee);
 export const WATER_Y = -0.16;
@@ -300,6 +301,7 @@ export class Env {
     this.hemi.color.setHex(0xdff4ff);
     this.hemi.groundColor.setHex(0x3a6a55);
     this.hemi.intensity = 1.25;
+    this.hemiBaseNow = 1.25;
     this.splash = true;
   }
 
@@ -309,9 +311,11 @@ export class Env {
       this.useProc();
       return true;
     }
-    let entry = this.panoCache.get(env.id);
+    const file = env.file || env.id;
+    this.night = !!env.night;
+    let entry = this.panoCache.get(file);
     if (!entry) {
-      const urls = ['/pano/' + env.id + '.jpg', 'https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/' + env.id + '.jpg'];
+      const urls = ['/pano/' + file + '.jpg', 'https://dl.polyhaven.org/file/ph-assets/HDRIs/extra/Tonemapped%20JPG/' + file + '.jpg'];
       let blob = null;
       for (const url of urls) {
         try {
@@ -380,7 +384,7 @@ export class Env {
         };
         const bottom = avg(0, 7), top = avg(9, 16);
         entry = { tex, envMap, top, bottom };
-        this.panoCache.set(env.id, entry);
+        this.panoCache.set(file, entry);
       } catch (e) {
         console.warn('Panorama dekódování', e);
         this.useProc();
@@ -400,6 +404,7 @@ export class Env {
     this.hemi.color.copy(entry.top).lerp(new THREE.Color(1, 1, 1), 0.35);
     this.hemi.groundColor.copy(entry.bottom);
     this.hemi.intensity = 1.1;
+    this.hemiBaseNow = 1.1;
     this.splash = false;
     return true;
   }
@@ -707,7 +712,42 @@ export class Env {
     this.energy = Math.min(1.5, this.energy + 0.25 * power);
   }
 
+  // nálada podle části skladby: barva a jas panoramatu / světel (plynulý přechod), v refrénu záblesky do rytmu
+  setMood(section) {
+    const M = {
+      intro: [1, 1, 1, 0.92],
+      groove: [1, 1, 1, 1],
+      build: [1.08, 0.96, 0.86, 0.88],
+      drop: [1.02, 0.94, 1.08, 1.02],
+      break: [0.84, 0.92, 1.1, 0.78],
+      outro: [1.04, 0.96, 0.9, 0.86],
+      finale: [1.12, 1.0, 0.78, 1],
+      menu: [1, 1, 1, 1],
+    };
+    this.moodKey = section in M ? section : 'groove';
+    const m = M[this.moodKey];
+    this.moodTarget = this.moodTarget || new THREE.Color(1, 1, 1);
+    this.moodTarget.setRGB(m[0] * m[3], m[1] * m[3], m[2] * m[3]);
+  }
+  updateMood(dt) {
+    if (!this.moodCur) {
+      this.moodCur = new THREE.Color(1, 1, 1);
+      this.moodTarget = this.moodTarget || new THREE.Color(1, 1, 1);
+      this.hemiBase = this.hemi.intensity;
+    }
+    this.moodCur.lerp(this.moodTarget, Math.min(1, dt * 0.8));
+    const nightC = _nightC;
+    const fl = this.moodKey === 'drop' ? this.beat * 0.14 : this.beat * 0.04;
+    if (this.pano && this.pano.visible) {
+      const c = this.pano.material.color.copy(this.moodCur);
+      if (this.night) c.multiply(nightC);
+      c.addScalar(fl * (this.night ? 0.5 : 1));
+    }
+    if (this.hemi) this.hemi.intensity = (this.hemiBaseNow || 1.1) * (this.night ? 0.55 : 1) * (0.85 + 0.15 * this.moodCur.g) + fl;
+  }
+
   updateFx(dt) {
+    this.updateMood(dt);
     if (this.speakers) for (const sp of this.speakers) {
       for (const w of sp.woofers) {
         w.c.position.z = w.z + this.beat * 0.025;
