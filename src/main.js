@@ -969,8 +969,8 @@ class App {
     const ch = !recMode && this.settings.useChoreo !== false ? loadChoreo(track) : null;
     let chart;
     if (recMode) chart = { events: [], duration: durT, targets: 0, barriers: 0 };
-    else if (tryMode && ch) chart = chartFromChoreo(ch, track, spbT, durT, run.range);
-    else if (ch && ch.events.length >= 8) chart = chartFromChoreo(ch, track, spbT, durT);
+    else if (tryMode && ch) chart = chartFromChoreo(ch, track, spbT, durT, run.range, this.settings.choreoSmooth ?? 1);
+    else if (ch && ch.events.length >= 8) chart = chartFromChoreo(ch, track, spbT, durT, null, this.settings.choreoSmooth ?? 1);
     else chart = track.custom ? buildChartFromAnalysis(track.an, track.phrases, this.settings.diff, track.seed) : buildChart(track, this.settings.diff, spbT);
     this.recorder = recMode ? new Recorder(this.calibData, beatMap(track, spbT), run.from || 0) : null;
     this.recSpb = spbT;
@@ -1420,7 +1420,13 @@ class App {
     else if (id === 'settings') this.showSettings();
     else if (id === 'library') this.showLibrary();
     else if (id.startsWith('mode:')) S.mode = id.slice(5);
-    else if (id === 'usechoreo') S.useChoreo = S.useChoreo === false;
+    else if (id === 'usechoreo') {
+      // vyp → přesná → uhlazená → hodně uhlazená → vyp
+      const st = S.useChoreo === false ? -1 : S.choreoSmooth ?? 1;
+      const nx = st === 2 ? -1 : st + 1;
+      S.useChoreo = nx >= 0;
+      if (nx >= 0) S.choreoSmooth = nx;
+    }
     else if (id === 'stats') this.showStats();
     else if (id === 'statsback') this.showMenu();
     else if (id === 'endnext') this.enduranceNext();

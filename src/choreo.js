@@ -126,7 +126,7 @@ export class Recorder {
           _d.set(h.fist.x - c.cx, 0, h.fist.z - c.cz);
           const cy = Math.cos(-yawP), sy = Math.sin(-yawP);
           const lx = _d.x * cy + _d.z * sy;
-          const e = { kind: 't', type, hand: side, beat: b, yaw: +yawP.toFixed(4), px: +Math.max(-0.45, Math.min(0.45, lx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
+          const e = { kind: 't', type, hand: side, beat: b, rb: +this.map.beatOf(t).toFixed(3), yaw: +yawP.toFixed(4), px: +Math.max(-0.45, Math.min(0.45, lx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
           this.events.push(e);
           out = e;
         }
@@ -156,8 +156,9 @@ export class Recorder {
       const changed = !d || (step ? d.kind !== 'wall' : Math.abs(ang - d.ang) >= STEP - 1e-6);
       if (changed && (!d || b - d.beat >= 0.5)) {
         let e;
-        if (step) e = { kind: 'b', type: dx > 0 ? 'wallL' : 'wallR', beat: b };
-        else e = { kind: 'b', type: 'arc', ang: +ang.toFixed(4), beat: b };
+        const rb = +this.map.beatOf(t).toFixed(3);
+        if (step) e = { kind: 'b', type: dx > 0 ? 'wallL' : 'wallR', beat: b, rb };
+        else e = { kind: 'b', type: 'arc', ang: +ang.toFixed(4), beat: b, rb };
         if (!this.events.some((x) => x.kind === 'b' && Math.abs(x.beat - b) < 0.25)) {
           this.events.push(e);
           out = out || e;
@@ -175,10 +176,126 @@ export function mergeChoreo(old, add, b0, b1) {
   return keep.concat(add).sort((a, b) => a.beat - b.beat);
 }
 
+// ---------- uhlazení nahrané choreografie ----------
+// level 0 = přesně jak nahráno, 1 = uhlazená (výchozí), 2 = hodně uhlazená
+const SMOOTH = {
+  1: { gap: 0.4, perBeat: 2, blend: 0.5, preferBeat: 0.18, onsetWin: 0.22, yawQ: 5 },
+  2: { gap: 0.55, perBeat: 1.25, blend: 0.8, preferBeat: 0.32, onsetWin: 0.16, yawQ: 0 },
+};
+const median = (a) => {
+  if (!a.length) return 0;
+  const b = [...a].sort((x, y) => x - y);
+  return b[Math.floor(b.length / 2)];
+};
+
+export function smoothChoreo(events, track, map, level) {
+  const P = SMOOTH[level];
+  if (!P) return events;
+  const T = events.filter((e) => e.kind === 't').map((e) => ({ ...e, rb: e.rb != null ? e.rb : e.beat }));
+  const Bv = events.filter((e) => e.kind === 'b').map((e) => ({ ...e, rb: e.rb != null ? e.rb : e.beat }));
+  // 1) systematické zpoždění/předstih vůči dobám (lidé bijí typicky o pár desítek ms jinak)
+  const offs = T.map((e) => e.rb - Math.round(e.rb)).filter((x) => Math.abs(x) < 0.3);
+  const shift = offs.length >= 6 ? Math.max(-0.25, Math.min(0.25, median(offs))) : 0;
+  // 2) silné údery v hudbě (vlastní skladba) v dobách
+  let onsetB = null;
+  if (track.custom && track.an && track.an.onsets && track.an.onsets.length) {
+    const ss = track.an.onsets.map((o) => o.s).sort((a, b) => a - b);
+    const thr = ss[Math.floor(ss.length * 0.55)];
+    onsetB = track.an.onsets.filter((o) => o.s >= thr).map((o) => ({ b: map.beatOf(o.t), s: o.s / ss[ss.length - 1] }));
+  }
+  const nearOnset = (b) => {
+    if (!onsetB) return null;
+    let best = null;
+    for (const o of onsetB) {
+      const d = Math.abs(o.b - b);
+      if (d <= P.onsetWin && (!best || d < best.d)) best = { b: o.b, s: o.s, d };
+    }
+    return best;
+  };
+  for (const e of T) {
+    const b = e.rb - shift;
+    const full = Math.round(b), half = Math.round(b * 2) / 2;
+    const on = nearOnset(b);
+    let nb, sal;
+    if (Math.abs(b - full) <= P.preferBeat) {
+      nb = full;
+      sal = 1 + (on && Math.abs(on.b - full) < 0.12 ? on.s : 0);
+    } else if (on) {
+      // přitáhnout přesně na skutečný úder v hudbě
+      nb = +on.b.toFixed(3);
+      sal = 0.6 + on.s;
+    } else {
+      nb = half;
+      sal = half === full ? 1 : 0.35;
+    }
+    e.beat = nb;
+    e.sal = sal - Math.abs(b - nb) * 0.5;
+  }
+  // 3) prořezání: stejná ruka min. odstup, celková hustota, přednost údery, které sedí do hudby
+  const timeOf = (b) => map.timeOf(b);
+  const keep = [];
+  const cand = [...T].sort((a, b) => b.sal - a.sal);
+  for (const e of cand) {
+    const te = timeOf(e.beat);
+    if (keep.some((k) => k.hand === e.hand && Math.abs(timeOf(k.beat) - te) < P.gap)) continue;
+    const win = keep.filter((k) => Math.abs(k.beat - e.beat) < 0.5).length;
+    if (win + 1 > P.perBeat) continue;
+    keep.push(e);
+  }
+  keep.sort((a, b) => a.beat - b.beat);
+  // obě ruce na stejné době → dvojitý terč
+  let pid = 1000;
+  for (let i = 0; i + 1 < keep.length; i++) {
+    const a = keep[i], b = keep[i + 1];
+    if (a.beat === b.beat && a.hand !== b.hand && a.pair == null) {
+      a.pair = b.pair = pid++;
+      a.type = b.type = 'jab';
+    }
+  }
+  // 4) pozice: přiblížit typickým pozicím úderu, úhly příletu vyhladit (medián sousedů)
+  for (const e of keep) {
+    const g = GEO[e.type] || GEO.jab;
+    const sgn = e.hand === 'L' ? -1 : 1;
+    if (e.px != null) {
+      e.px = +(e.px * (1 - P.blend) + sgn * g.x * P.blend).toFixed(3);
+      e.py = +(e.py * (1 - P.blend) + g.dy * P.blend).toFixed(3);
+    }
+  }
+  const yaws = keep.map((e) => e.yaw || 0);
+  keep.forEach((e, i) => {
+    let y = median(yaws.slice(Math.max(0, i - 2), i + 3));
+    const D = Math.PI / 180;
+    if (P.yawQ) y = Math.round(y / (P.yawQ * D)) * P.yawQ * D;
+    else y = [0, 15, -15, 25, -25].map((d) => d * D).sort((a, b) => Math.abs(a - y) - Math.abs(b - y))[0];
+    e.yaw = +y.toFixed(4);
+  });
+  // 5) překážky: na půldoby; spirály (navazující půlkruhy) nechat, ostatní rozestoupit
+  for (const e of Bv) e.beat = Math.round((e.rb - shift) * 2) / 2;
+  Bv.sort((a, b) => a.beat - b.beat);
+  const bars = [];
+  for (const e of Bv) {
+    const prev = bars[bars.length - 1];
+    if (prev) {
+      const gap = e.beat - prev.beat;
+      const spiral = e.type === 'arc' && prev.type === 'arc' && gap <= 1 && Math.abs((e.ang || 0) - (prev.ang || 0)) <= Math.PI / 4 + 1e-3;
+      if (gap < 0.5) continue;
+      if (!spiral && gap < (e.type.startsWith('wall') || prev.type.startsWith('wall') ? 2 : 1.5)) continue;
+    }
+    bars.push(e);
+  }
+  // terče ne těsně u překážek
+  const out = keep.filter((t) => !bars.some((b) => Math.abs(b.beat - t.beat) < 0.75));
+  return out.concat(bars).sort((a, b) => a.beat - b.beat).map((e) => {
+    const x = { ...e };
+    delete x.sal;
+    return x;
+  });
+}
+
 // uložená choreografie → herní události
-export function chartFromChoreo(ch, track, spb, duration, range) {
+export function chartFromChoreo(ch, track, spb, duration, range, level = 1) {
   const map = beatMap(track, spb);
-  const ev = ch.events
+  const ev = smoothChoreo(ch.events, track, map, level)
     .map((e) => ({ ...e, t: map.timeOf(e.beat), sx: 0, sy: 0, section: 'groove' }))
     .filter((e) => e.t > 1 && e.t < duration - 0.3 && (!range || (e.t >= range.t0 - 0.05 && e.t <= range.t1 + 0.05)))
     .sort((a, b) => a.t - b.t);

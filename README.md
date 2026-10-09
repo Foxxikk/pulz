@@ -17,6 +17,18 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10.4 – uhlazení choreografie
+
+- Nahraná choreografie se při hraní automaticky **uhladí** (nahrávka sama zůstává beze změny):
+  - **vyrovnání zpoždění** – zjistí, o kolik systematicky boxuješ po rytmu, a posune to zpět,
+  - **přichycení k hudbě** – údery se přitáhnou na dobu, silný úder v písničce nebo půldobu,
+  - **prořezání** – stejná ruka min. 0,4 s od sebe, max. 2 terče na dobu (dvojité rány zmizí),
+  - L + P na stejnou dobu → **dvojitý terč**,
+  - **vyhlazení pozic a úhlů** terčů (žádné skákání ze strany na stranu),
+  - překážky s rozumnými rozestupy, **spirály půlkruhů zůstávají**.
+- V menu tlačítko **Moje choreo: přesná / uhlazená (výchozí) / hodně uhlazená / vypnutá**.
+- Test na simulované „lidské“ nahrávce: přesně do hudby (±40 ms) z 59–72 % → 95–98 %.
+
 ## Novinky v10.3
 - **Přílety ze stran**: terče nelétají jen zepředu – střídají se „dráhy“ zepředu a mírně ze stran (lehká ±15°, střední ±15–25°, těžká až ±30°), dráha se mění po frázích a nikdy neskočí z jedné strany na druhou. Natočí se místo zásahu, dráha letu, terč i očekávaný směr úderu.
 - **Nahrávání úderů do stran**: přímý úder se pozná podle toho, že se pěst vzdálí od hlavy, a zapíše se i s úhlem, kam mířil (±35°, po 5°) – při přehrání terč přiletí z toho směru. Křížový direkt do strany se už nesplete s hookem.

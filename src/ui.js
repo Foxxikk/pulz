@@ -190,7 +190,7 @@ export function makePanels(app) {
     text(g, 'Režim', 52, 628, 26, { color: 'rgba(255,255,255,0.65)', weight: 600 });
     const tk = app.currentTrack;
     const hasRec = tk && app.choreoFor && app.choreoFor(tk);
-    if (hasRec) p.btn('usechoreo', 852, 600, 376, 44, S.useChoreo !== false ? 'Moje choreografie: ZAP' : 'Moje choreografie: VYP', { size: 22, weight: 700, on: S.useChoreo !== false, r: 14 });
+    if (hasRec) p.btn('usechoreo', 852, 600, 376, 44, 'Moje choreo: ' + (S.useChoreo === false ? 'vypnutá' : ['přesná', 'uhlazená', 'hodně uhlazená'][S.choreoSmooth ?? 1]), { size: 22, weight: 700, on: S.useChoreo !== false, r: 14 });
     [['train', 'Trénink'], ['perfect', 'Bez chyby'], ['endurance', 'Vytrvalost'], ['record', 'Nahrát choreo']].forEach(([id, nm], i) => {
       p.btn('mode:' + id, 52 + i * 298, 652, 284, 96, nm, { on: mode === id, size: 32, weight: 800 });
     });
