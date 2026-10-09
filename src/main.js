@@ -719,6 +719,7 @@ class App {
         if (want) session.updateTargetFrameRate(want).catch(() => {});
       }
       this.session = session;
+      this.quality = 0;
       this.mode = 'vr';
       this.demo = false;
       this.dom.overlay.classList.add('hidden');
@@ -738,6 +739,31 @@ class App {
       console.error(err);
       this.dom.note.textContent = 'Nepodařilo se spustit VR: ' + (err && err.message ? err.message : err);
     }
+  }
+
+  // automatická kvalita: když hra nestíhá obnovovací frekvenci headsetu, ubere efekty (a zase je vrátí)
+  adaptQuality(now) {
+    if (this.mode !== 'vr' || !this.session) return;
+    const target = this.session.frameRate || 72;
+    const low = this.fps < target * 0.88;
+    const good = this.fps >= target * 0.97;
+    this.qLow = low ? (this.qLow || 0) + 1 : 0;
+    this.qGood = good ? (this.qGood || 0) + 1 : 0;
+    if (this.qLow >= 4 && (this.quality || 0) < 2) {
+      this.setQuality((this.quality || 0) + 1);
+      this.qLow = 0;
+    } else if (this.qGood >= 30 && (this.quality || 0) > 0) {
+      this.setQuality(this.quality - 1);
+      this.qGood = 0;
+    }
+  }
+  setQuality(q) {
+    this.quality = q;
+    this.fx.density = q === 0 ? 1 : q === 1 ? 0.6 : 0.35;
+    if (this.env.stream) this.env.stream.visible = q < 2;
+    try { this.renderer.xr.setFoveation(q === 0 ? 0.6 : 1); } catch (e) {}
+    this.targets.setQuality && this.targets.setQuality(q);
+    if (this.game.rec) this.game.rec.quality = Math.max(this.game.rec.quality || 0, q);
   }
 
   // umístí panel před hlavu (ve výšce y vůči hlavě, vzdálenost d)
@@ -815,6 +841,30 @@ class App {
 
   stopPractice() {
     if (this.game.practiceMode) this.game.stopPractice();
+  }
+
+  toggleAutoCal() {
+    if (this.game.practiceMode) {
+      const was = !!this.game.autocal;
+      this.togglePractice(); // vypne (a vrátí nastavení, pokud kalibrace běžela)
+      if (was) return;
+    }
+    this.calMsg = '';
+    this.togglePractice();
+    this.game.stopPractice();
+    const h = this.head;
+    const c = this.calibData || { headH: this.mode === 'vr' ? h.y : 1.62, cx: this.mode === 'vr' ? h.x : 0, cz: this.mode === 'vr' ? h.z : 0, reach: 0.58, hitDist: 0.46 };
+    this.game.startAutoCal(c);
+    this.coachSay && this.coachSay('Kalibrace. Boxuj do terčů normálně, jako při hře.');
+  }
+  onAutoCalDone() {
+    if (this.mode === 'vr') this.placePanel(this.panels.settings, 0.55, -0.28, 0.42);
+    else {
+      this.panels.settings.mesh.position.set(0, 1.42, -0.62);
+      this.panels.settings.mesh.lookAt(this.camera.position);
+    }
+    this.sfx('go');
+    this.coachSay && this.coachSay(/nepovedla/.test(this.calMsg) ? 'Kalibrace se nepovedla, zkus to znovu.' : 'Hotovo. Citlivost je nastavená podle tebe.');
   }
 
   // ---------- tok tréninku ----------
@@ -1058,6 +1108,10 @@ class App {
         S.sens[key] = Math.max(1, Math.min(5, S.sens[key] + d));
       }
     } else if (id === 'fps') S.showFps = !S.showFps;
+    else if (id === 'coach') S.coach = { voice: 'text', text: 'off', off: 'voice' }[S.coach || 'voice'];
+    else if (id === 'warmup') S.warmup = S.warmup === false;
+    else if (id === 'stretch') S.stretch = S.stretch === false;
+    else if (id === 'autocal') this.toggleAutoCal();
     else if (id === 'amb:-' || id === 'amb:+') {
       S.ambient = Math.max(0, Math.min(5, (S.ambient ?? 3) + (id === 'amb:+' ? 1 : -1)));
       if (this.audio) this.audio.setAmbientLevel(S.ambient / 5);
@@ -1191,13 +1245,15 @@ class App {
   loop(frame) {
     const dt = Math.min(0.05, this.clock.getDelta());
     const now = performance.now() / 1000;
+    // skutečné FPS (podle reálného času, ne oříznutého dt)
     this.fpsCount++;
-    this.fpsT += dt;
-    if (this.fpsT >= 0.5) {
-      this.fps = Math.round(this.fpsCount / this.fpsT);
+    if (!this.fpsT0) this.fpsT0 = now;
+    if (now - this.fpsT0 >= 0.5) {
+      this.fps = Math.round(this.fpsCount / (now - this.fpsT0));
       this.fpsCount = 0;
-      this.fpsT = 0;
-      if (this.dom && this.dom.fps) this.dom.fps.textContent = this.fps + ' FPS';
+      this.fpsT0 = now;
+      if (this.dom && this.dom.fps) this.dom.fps.textContent = this.fps + ' FPS' + (this.quality ? ` · kvalita −${this.quality}` : '');
+      this.adaptQuality(now);
     }
 
     // čas skladby
@@ -1306,7 +1362,7 @@ class App {
     if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode + this.envStatus + '|' + this.localSongs.length + '|' + (this.libSongs ? this.libSongs.length : -1) + '|' + (this.customTrack ? this.customTrack.name : ''));
     if (this.screen === 'settings') {
       if (this.game.practiceMode) this.game.updatePractice(now, dt, this.hands, this.head);
-      this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode);
+      this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode + '|' + !!this.game.autocal + '|' + this.game.practiceIdx + '|' + (this.calMsg || ''));
     }
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
     if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.libKeypad ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.localSongs.length, this.customTrack ? this.customTrack.localId + this.customTrack.libUrl : ''].join('|'));

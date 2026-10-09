@@ -193,9 +193,9 @@ export function makePanels(app) {
     });
   }, { interactive: true });
 
-  P.settings = new Panel(1280, 984, 0.84, (g, p) => {
+  P.settings = new Panel(1280, 1150, 0.84, (g, p) => {
     const S = app.settings;
-    glass(g, 1280, 984);
+    glass(g, 1280, 1150);
     text(g, 'Citlivost a nastavení', 52, 90, 54, { weight: 900 });
     text(g, '1 = přísná · 5 = bere skoro každý pohyb', 1228, 86, 24, { align: 'right', color: 'rgba(255,255,255,0.6)', weight: 500 });
     const lv = (k) => `${S.sens[k]} · ${SENS[S.sens[k] - 1].name}`;
@@ -205,33 +205,59 @@ export function makePanels(app) {
     bigStepper(p, g, 'su', 640, 120, 'Zvedák', lv('upper'), sub('upper'));
     bigStepper(p, g, 'zone', 934, 120, 'Zóna zásahu', `${S.zone} · ${ZONE[S.zone - 1].name}`, `+${Math.round(ZONE[S.zone - 1].tol * 100)} cm`);
     smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
-    p.btn('spatial', 648, 422, 580, 72, S.spatial !== false ? 'Hudba: prostorová (z reproduktorů)' : 'Hudba: klasické stereo', { size: 26, weight: 800, on: S.spatial !== false });
-    p.btn('barmode', 52, 422, 580, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: bez zdí', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 26, weight: 800, on: (S.barriers || 'all') !== 'all' });
     smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
     smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);
-    // poslední údery
-    roundRect(g, 52, 516, 700, 420, 24);
+    // přepínače
+    p.btn('barmode', 52, 422, 580, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: bez zdí', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 26, weight: 800, on: (S.barriers || 'all') !== 'all' });
+    p.btn('spatial', 648, 422, 580, 72, S.spatial !== false ? 'Hudba: prostorová' : 'Hudba: klasické stereo', { size: 26, weight: 800, on: S.spatial !== false });
+    const coach = S.coach || 'voice';
+    p.btn('coach', 52, 506, 286, 72, { voice: 'Trenér: hlas', text: 'Trenér: jen text', off: 'Trenér: vyp.' }[coach], { size: 24, weight: 800, on: coach !== 'off' });
+    p.btn('warmup', 346, 506, 286, 72, S.warmup !== false ? 'Rozcvička: ano' : 'Rozcvička: ne', { size: 24, weight: 800, on: S.warmup !== false });
+    p.btn('stretch', 640, 506, 286, 72, S.stretch !== false ? 'Protažení: ano' : 'Protažení: ne', { size: 24, weight: 800, on: S.stretch !== false });
+    p.btn('fps', 934, 506, 294, 72, S.showFps ? 'FPS: ukazovat' : 'FPS: skrýt', { size: 24, weight: 800, on: !!S.showFps });
+    // poslední údery / výsledek kalibrace
+    roundRect(g, 52, 600, 700, 510, 24);
     g.fillStyle = 'rgba(0,0,0,0.25)';
     g.fill();
-    text(g, 'Poslední údery', 76, 562, 30, { weight: 800 });
-    const at = (app.game.attempts || []).slice(0, 7);
-    if (!at.length) text(g, 'Zapni zkušební terče a zkus pár úderů.', 76, 614, 26, { color: 'rgba(255,255,255,0.55)', weight: 500 });
+    const ac = app.game.autocal;
+    if (ac) {
+      text(g, 'Automatická kalibrace', 76, 646, 30, { weight: 800 });
+      text(g, `Terč ${Math.min(12, app.game.practiceIdx)} z 12 – boxuj normálně, jako při hře.`, 76, 696, 26, { color: '#9fd0ff', weight: 600 });
+    } else if (app.calMsg) {
+      text(g, 'Výsledek kalibrace', 76, 646, 30, { weight: 800 });
+      wrap(g, app.calMsg, 76, 696, 650, 34, 25, '#7dffb0');
+    } else text(g, 'Poslední údery', 76, 646, 30, { weight: 800 });
+    const at = (app.game.attempts || []).slice(0, ac || app.calMsg ? 4 : 9);
+    const y0 = ac || app.calMsg ? 880 : 698;
+    if (!at.length && !ac && !app.calMsg) text(g, 'Zapni zkušební terče nebo automatickou kalibraci.', 76, 698, 26, { color: 'rgba(255,255,255,0.55)', weight: 500 });
     at.forEach((a, i) => {
-      const y = 612 + i * 46;
-      const ok = /zásah|perfekt|skvěl|dobré/.test(a.res);
+      const y = y0 + i * 46;
+      const ok = /zásah|perfekt|skvěl|dobré|změřeno/.test(a.res);
       text(g, a.nm, 76, y, 26, { weight: 700 });
       text(g, a.spd ? `${a.spd.toFixed(1)} m/s` : '–', 330, y, 26, { color: '#9fd0ff', weight: 600 });
       text(g, a.res, 470, y, 26, { color: ok ? '#7dffb0' : '#ffb08a', weight: 600 });
     });
-    p.btn('practice', 780, 516, 448, 200, app.game.practiceMode ? 'Vypnout terče' : 'Zkušební terče', {
-      primary: !app.game.practiceMode,
-      size: 40,
-      weight: 900,
-      sub: app.game.practiceMode ? 'běží: direkt, hook, zvedák' : 'stojí před tebou, trefuj',
-    });
-    p.btn('back', 780, 736, 448, 200, 'Zpět do menu', { size: 40, weight: 800 });
+    const busy = app.game.practiceMode;
+    p.btn('autocal', 780, 600, 448, 160, ac ? 'Zrušit kalibraci' : 'Automatická kalibrace', { primary: !busy, size: 34, weight: 900, sub: ac ? 'vrátí původní nastavení' : '12 terčů, nastaví citlivost za tebe' });
+    p.btn('practice', 780, 775, 448, 160, busy && !ac ? 'Vypnout terče' : 'Zkušební terče', { size: 34, weight: 800, sub: busy && !ac ? 'běží: direkt, hook, zvedák' : 'stojí před tebou, trefuj', disabled: !!ac });
+    p.btn('back', 780, 950, 448, 160, 'Zpět do menu', { size: 36, weight: 800 });
   }, { interactive: true });
+
+  function wrap(g, str, x, y, w, lh, size, color) {
+    g.font = `600 ${size}px ${FONT}`;
+    const words = str.split(' ');
+    let line = '';
+    for (const wd of words) {
+      const t = line ? line + ' ' + wd : wd;
+      if (g.measureText(t).width > w && line) {
+        text(g, line, x, y, size, { color, weight: 600 });
+        y += lh;
+        line = wd;
+      } else line = t;
+    }
+    if (line) text(g, line, x, y, size, { color, weight: 600 });
+  }
 
   function bigStepper(p, g, id, x, y, label, value, sub) {
     roundRect(g, x, y, 286, 150, 22);

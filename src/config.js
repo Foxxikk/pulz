@@ -114,6 +114,8 @@ export const GEO = {
   hook: { x: 0.13, dy: -0.15, dir: [-1, 0, 0] },
   upper: { x: 0.16, dy: -0.36, dir: [0, 1, 0] },
   finale: { x: 0, dy: -0.2, dir: [0, 0, -1] },
+  bomb: { x: 0.12, dy: -0.2, dir: [0, 0, -1] },
+  boss: { x: 0, dy: -0.1, dir: [0, 0, -1] },
 };
 
 // Bariéry: ang = natočení (normála blokované poloroviny n = (−sin ang, cos ang)),
@@ -152,7 +154,7 @@ export const ZONE = [
   { name: 'Větší', tol: 0.065, squash: 1.15 },
   { name: 'Velká', tol: 0.1, squash: 1.0 },
 ];
-export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák', finale: 'Finále' };
+export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák', finale: 'Finále', bomb: 'Bomba', boss: 'Boss' };
 
 // Prostředí: 360° fotky (Poly Haven, CC0) – načítají se za běhu přes /pano/ (rewrite ve vercel.json)
 // Zvuky přírody: Wikimedia Commons – „Forest lawn creek“ (Dsw, volné dílo), „Vojníkov, 3. jez“ (Juandev, volné dílo),
@@ -185,4 +187,8 @@ export const DEFAULT_SETTINGS = {
   audioOffset: 0, // ms
   showFps: false,
   spatial: true, // hudba z reproduktorů ve scéně (prostorový zvuk)
+  coach: 'voice', // trenér: voice / text / off
+  warmup: true, // rozcvička před tréninkem
+  stretch: true, // protažení po tréninku
+  mode: 'train', // train / perfect (bez chyby) / endurance (vytrvalost)
 };

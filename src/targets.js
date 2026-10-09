@@ -269,7 +269,9 @@ export class TargetPool {
     o.g.scale.setScalar(1);
     o.spin.rotation.set(0, 0, Math.random() * 6.28);
     o.wob = Math.random() * 6;
-    o.base = type === 'finale' ? 1.7 : 1;
+    o.base = type === 'finale' ? 1.7 : type === 'boss' ? 2.3 : 1;
+    for (const w of o.wedges) w.visible = true;
+    o.chipped = 0;
     // čelo terče míří proti směru úderu (hook ze strany, zvedák zespodu), napůl k hráči, ať je čitelné
     const gd = GEO[type] || GEO.jab;
     const dx = gd.dir[0] * (type === 'hook' && side === 'L' ? -1 : 1);
@@ -290,6 +292,125 @@ export class TargetPool {
       o.wing.rotation.set(0, 0, -Math.PI / 2);
     } else o.wing.visible = false;
     return o;
+  }
+
+  // ---------- bomba (netrefit!) ----------
+  makeBomb() {
+    const g = new THREE.Group();
+    if (!this.bombMats) {
+      this.bombMats = {
+        body: new THREE.MeshStandardMaterial({ color: 0x1a0507, metalness: 0.8, roughness: 0.25, emissive: 0xff1030, emissiveIntensity: 0.25 }),
+        spike: new THREE.MeshStandardMaterial({ color: 0x2a0a0c, metalness: 0.7, roughness: 0.3, emissive: 0xff2040, emissiveIntensity: 0.9 }),
+      };
+      this.bombBody = new THREE.IcosahedronGeometry(R * 0.72, 1);
+      this.bombSpike = new THREE.ConeGeometry(R * 0.13, R * 0.55, 8);
+      this.bombSpike.translate(0, R * 0.72 + R * 0.2, 0);
+    }
+    const body = new THREE.Mesh(this.bombBody, this.bombMats.body);
+    g.add(body);
+    const ico = new THREE.IcosahedronGeometry(1, 0).attributes.position;
+    const seen = new Set();
+    for (let i = 0; i < ico.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(ico, i).normalize();
+      const key = v.toArray().map((x) => x.toFixed(2)).join();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const sp = new THREE.Mesh(this.bombSpike, this.bombMats.spike);
+      sp.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v);
+      g.add(sp);
+    }
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xff2040, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.6 }));
+    glow.scale.setScalar(R * 3.2);
+    g.add(glow);
+    g.visible = false;
+    this.scene.add(g);
+    return { g, glow, busy: false, bomb: true, base: 1, wob: Math.random() * 6 };
+  }
+  getBomb() {
+    this.bombs = this.bombs || [];
+    let o = this.bombs.find((b) => !b.busy);
+    if (!o) {
+      o = this.makeBomb();
+      this.bombs.push(o);
+    }
+    o.busy = true;
+    o.g.visible = true;
+    o.g.scale.setScalar(1);
+    return o;
+  }
+  animateBomb(o, r, dt) {
+    o.g.rotation.x += dt * 1.3;
+    o.g.rotation.y += dt * 1.9;
+    // varovné blikání, rychlejší při přiblížení
+    const f = 3 + Math.max(0, 2 - Math.max(0, r)) * 5;
+    const bl = 0.5 + 0.5 * Math.sin(this.time * f * 6.28);
+    o.glow.material.opacity = 0.35 + bl * 0.5;
+    this.bombMats.spike.emissiveIntensity = 0.6 + bl * 0.8;
+  }
+
+  // ---------- světelné spojení dvojitého terče ----------
+  getLink() {
+    this.links = this.links || [];
+    let o = this.links.find((l) => !l.busy);
+    if (!o) {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      this.scene.add(m);
+      o = { m, busy: false };
+      this.links.push(o);
+    }
+    o.busy = true;
+    o.m.visible = true;
+    return o;
+  }
+  placeLink(o, a, b, op) {
+    o.m.position.addVectors(a, b).multiplyScalar(0.5);
+    _v.subVectors(b, a);
+    const len = _v.length();
+    o.m.scale.set(1 + this.beatPulse, Math.max(0.01, len - R * 1.6), 1 + this.beatPulse);
+    o.m.quaternion.setFromUnitVectors(_w.set(0, 1, 0), _v.normalize());
+    o.m.material.opacity = op * (0.45 + this.beatPulse * 0.4);
+  }
+  releaseLink(o) {
+    o.busy = false;
+    o.m.visible = false;
+  }
+
+  // boss: odštípnout jeden díl (každý úder)
+  chip(o, dir, power) {
+    const w = o.wedges.find((x) => x.visible);
+    if (!w) return 0;
+    o.g.updateMatrixWorld(true);
+    const p = this.pieces[this.pi];
+    this.pi = (this.pi + 1) % this.pieces.length;
+    p.active = true;
+    p.t = 0;
+    p.life = 1.1;
+    p.m.material = w.material;
+    p.m.geometry = w.geometry;
+    w.getWorldPosition(p.m.position);
+    w.getWorldQuaternion(p.m.quaternion);
+    p.s = o.g.scale.x;
+    p.m.scale.setScalar(p.s);
+    p.m.visible = true;
+    _v.copy(w.position).normalize().applyQuaternion(p.m.quaternion);
+    p.v.copy(_v).multiplyScalar(2.5 + power * 2).addScaledVector(dir, 2 + power * 2);
+    p.v.y += 1;
+    p.w.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 8);
+    w.visible = false;
+    o.chipped++;
+    return o.wedges.filter((x) => x.visible).length;
+  }
+
+  // nižší kvalita: bez laku na čele terčů (levnější shader)
+  setQuality(q) {
+    for (const k of ['L', 'R', 'B']) {
+      const f = this.mats[k].face;
+      const cc = q >= 2 ? 0 : 1;
+      if (f.clearcoat !== cc) {
+        f.clearcoat = cc;
+        f.needsUpdate = true;
+      }
+    }
   }
 
   release(o) {
@@ -348,8 +469,14 @@ export class TargetPool {
     const near = Math.max(0, 1 - Math.max(0, r) / 1.0);
     const perfect = Math.abs(r) < perfectWin ? 1 : 0;
     // jádro se nabíjí a v perfektní chvíli zbělá
-    const ch = 0.35 + near * near * 1.6 + perfect * 0.8;
-    o.core.material.color.copy(o.coreBase).multiplyScalar(ch).lerp(_whiteC, perfect * 0.45);
+    if (o.type === 'boss') {
+      // boss: pulzující zlaté srdce, s každým odštípnutým dílem menší
+      o.core.material.color.copy(o.coreBase).multiplyScalar(0.55 + this.beatPulse * 0.6);
+      o.core.scale.setScalar(0.42 * (1 - o.chipped * 0.06) * (1 + this.beatPulse * 0.12));
+    } else {
+      const ch = 0.35 + near * near * 1.6 + perfect * 0.8;
+      o.core.material.color.copy(o.coreBase).multiplyScalar(ch).lerp(_whiteC, perfect * 0.45);
+    }
     // pulz do rytmu
     o.orient.scale.setScalar(1 + this.beatPulse * 0.07 * (1 - e));
     o.glow.material.opacity = (0.25 + near * 0.35 + perfect * 0.3 + this.beatPulse * 0.15) * pop;
@@ -361,6 +488,7 @@ export class TargetPool {
   shatter(o, dir, power) {
     o.g.updateMatrixWorld(true);
     for (const w of o.wedges) {
+      if (!w.visible) continue;
       const p = this.pieces[this.pi];
       this.pi = (this.pi + 1) % this.pieces.length;
       p.active = true;

@@ -119,9 +119,9 @@ export function buildChart(track, diffId, spb) {
   raw.push(...rawT);
   raw.sort((a, b) => a.beat - b.beat);
 
-  const events = finalize(raw, (b) => b * spb, 8, totalBeats - 4);
+  const events = addSpecials(finalize(raw, (b) => b * spb, 8, totalBeats - 4), diffId, R, (b) => b * spb);
   addFinale(events, (b) => b * spb, totalBeats - 2, totalBeats * spb);
-  return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't').length, barriers: events.filter((e) => e.kind === 'b').length };
+  return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't' && e.type !== 'bomb').length, barriers: events.filter((e) => e.kind === 'b').length };
 }
 
 
@@ -186,6 +186,55 @@ function planBarriers(phrases, maxBeat, spbAt, diffId, R) {
     }
   });
   return out;
+}
+
+// ---------- speciální terče: boss, dvojité, zakřivené, rychlé série, bomby ----------
+const SPECIAL = {
+  easy: { dbl: 0.05, curve: 0.06, bomb: 0, small: false },
+  mid: { dbl: 0.2, curve: 0.12, bomb: 0.25, small: true, bombGap: 1.0 },
+  hard: { dbl: 0.25, curve: 0.18, bomb: 0.35, small: true, bombGap: 0.8 },
+};
+function addSpecials(events, diffId, R, timeOf) {
+  const P = SPECIAL[diffId];
+  let ev = events;
+  const T = () => ev.filter((e) => e.kind === 't');
+  // boss – jeden za skladbu, uprostřed refrénů
+  const drops = T().filter((e) => e.section === 'drop');
+  if (drops.length > 8) {
+    const e0 = drops[Math.floor(drops.length * 0.5)];
+    const spb = timeOf(e0.beat + 1) - timeOf(e0.beat);
+    const hold = diffId === 'easy' ? 3 : Math.min(2.6, Math.max(1.9, spb * 4));
+    ev = ev.filter((e) => e.t < e0.t - 0.6 || e.t > e0.t + hold + 0.6);
+    ev.push({ kind: 't', type: 'boss', hand: 'B', beat: e0.beat, t: e0.t, hold, sx: 0, sy: 0, section: 'drop' });
+  }
+  const tg = T().filter((e) => e.type !== 'boss').sort((a, b) => a.t - b.t);
+  let pair = 0;
+  const add = [];
+  tg.forEach((e, k) => {
+    const prev = tg[k - 1], next = tg[k + 1];
+    const gapP = prev ? e.t - prev.t : 9, gapN = next ? next.t - e.t : 9;
+    // rychlá série: menší terče těsně za sebou
+    if (P.small && e.section === 'build' && Math.min(gapP, gapN) < 0.3) e.small = true;
+    // dvojitý terč na obě pěsti
+    if ((e.section === 'drop' || e.section === 'build') && gapP >= (diffId === 'easy' ? 0.8 : 0.45) && gapN >= (diffId === 'easy' ? 0.8 : 0.45) && R() < P.dbl) {
+      e.hand = 'L';
+      e.type = 'jab';
+      e.pair = pair;
+      e.small = false;
+      add.push({ ...e, hand: 'R', pair: pair++ });
+      return;
+    }
+    // zakřivený let ze strany
+    if (e.type === 'jab' && e.section !== 'intro' && R() < P.curve) e.curve = e.hand === 'L' ? -1 : 1;
+    // bomba mezi dvěma terči s volnem
+    if (next && P.bomb && gapN >= (P.bombGap || 1) && (e.section === 'groove' || e.section === 'drop') && R() < P.bomb) {
+      const bt = (e.t + next.t) / 2;
+      add.push({ kind: 't', type: 'bomb', hand: next.hand === 'L' ? 'R' : 'L', beat: (e.beat + next.beat) / 2, t: bt, sx: (R() - 0.5) * 0.08, sy: (R() - 0.5) * 0.08, section: e.section });
+    }
+  });
+  ev = ev.concat(add).sort((a, b) => a.t - b.t);
+  ev.forEach((e, i) => (e.i = i));
+  return ev;
 }
 
 // společné dočištění: bariéry, volno kolem nich, stejná ruka min. 0,35 s, časy
@@ -314,13 +363,13 @@ export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
   const spbAt = (b) => timeOf(b + 1) - timeOf(b);
   const phr = phrases.filter((p) => p.type !== 'silent').map((p) => ({ b: p.b, type: p.type }));
   raw.push(...planBarriers(phr, Math.min(maxBeat, beats.length - 2), spbAt, diffId, R));
-  const events = finalize(raw, timeOf, minBeat, Math.min(maxBeat, beats.length - 2));
+  const events = addSpecials(finalize(raw, timeOf, minBeat, Math.min(maxBeat, beats.length - 2)), diffId, R, timeOf);
   addFinale(events, timeOf, Math.min(maxBeat, beats.length - 2), an.duration);
   return {
     events,
     totalBeats: beats.length,
     duration: an.duration,
-    targets: events.filter((e) => e.kind === 't').length,
+    targets: events.filter((e) => e.kind === 't' && e.type !== 'bomb').length,
     barriers: events.filter((e) => e.kind === 'b').length,
   };
 }

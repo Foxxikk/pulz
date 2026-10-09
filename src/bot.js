@@ -42,7 +42,20 @@ export class Bot {
     if (!c) return;
     // naplánovat pohyby
     for (const it of game.items) {
-      if (it.kind !== 't' || it.state !== 'fly' || this.done.has(it.e.i)) continue;
+      if (it.kind !== 't' || it.state !== 'fly') continue;
+      if (it.type === 'bomb') continue; // bombu nikdy
+      // boss: série střídavých úderů po dobu visení
+      if (it.type === 'boss' && t >= it.tHit - 0.17 && t < it.tHit + (it.e.hold || 2) - 0.2) {
+        if (t >= (it.botNext || 0)) {
+          const side = (it.botSide = it.botSide === 'L' ? 'R' : 'L');
+          if (!this.motion[side] || t > this.motion[side].end - 0.15) {
+            this.motion[side] = { it, start: t, contact: t + 0.17, end: t + 0.17 + 0.22, type: 'jab', side, hit: it.hit.clone().add(new THREE.Vector3(side === 'L' ? -0.12 : 0.12, 0, 0)) };
+            it.botNext = t + 0.24;
+          }
+        }
+        continue;
+      }
+      if (this.done.has(it.e.i)) continue;
       if (it.tHit - t > 0.32) continue;
       this.done.add(it.e.i);
       if (this.R() < this.missRate) continue;

@@ -24,6 +24,9 @@ export class Game {
     this.maxCombo = 0;
     this.mult = 1;
     this.hits = 0;
+    this.bombsOk = 0;
+    this.bombsHit = 0;
+    this.pairHit = {};
     this.perfect = 0;
     this.great = 0;
     this.good = 0;
@@ -191,7 +194,20 @@ export class Game {
     if (it.kind === 't') {
       const sgn = e.hand === 'L' ? -1 : 1;
       it.far.set(sgn * (1.2 + rr * 2.8), 0.4 + rr * 1.6, 0);
-      it.vis = this.app.targets.get(e.hand, e.type);
+      if (e.type === 'bomb') {
+        it.vis = this.app.targets.getBomb();
+        it.far.set((rr - 0.5) * 3, 0.6 + rr, 0);
+      } else it.vis = this.app.targets.get(e.hand, e.type);
+      if (e.small) it.vis.base = 0.72;
+      // dvojitý terč: světelné spojení s partnerem
+      if (e.pair != null) {
+        const pt = this.items.find((x) => x.e.pair === e.pair && x !== it && x.state === 'fly');
+        if (pt) {
+          it.partner = pt;
+          pt.partner = it;
+          it.link = pt.link = this.app.targets.getLink();
+        }
+      }
     } else {
       it.far.set((rr - 0.5) * 2, 0.8, 0);
       it.vis = this.app.targets.getBarrier(e.type, barOf(e).ang);
@@ -207,7 +223,12 @@ export class Game {
   // poloha v čase t: rychlý přílet, na konci „doplachtí“ (finalFrac rychlosti)
   posAt(it, t, out) {
     if (it.practice) return out.copy(it.hit).add(_a.set(0, Math.sin(t * 2.2) * 0.012, 0));
-    const u = (it.tHit - t) / this.flight;
+    // boss: po příletu visí před hráčem (hold), lehce se pohupuje
+    if (it.type === 'boss' && t >= it.tHit && t <= it.tHit + (it.e.hold || 2)) {
+      return out.copy(it.hit).add(_a.set(Math.sin(t * 1.7) * 0.03, Math.sin(t * 2.6) * 0.03, 0));
+    }
+    const tt0 = it.type === 'boss' && t > it.tHit ? t - (it.e.hold || 2) : t;
+    const u = (it.tHit - tt0) / this.flight;
     const D = GEO.spawnDist;
     const a = GEO.finalFrac;
     let off;
@@ -221,12 +242,22 @@ export class Game {
     const uu = Math.max(0, u);
     const conv = uu * uu;
     out.set(it.hit.x + it.far.x * conv, it.hit.y + it.far.y * conv, it.hit.z - off);
+    // zakřivený let: oblouk ze strany, na začátku i v cíli bez odchylky
+    if (it.e.curve && uu > 0) out.x += it.e.curve * 1.1 * Math.sin(Math.PI * Math.min(1, uu * 1.15));
     return out;
   }
 
   releaseItem(it) {
+    if (it.link) {
+      this.app.targets.releaseLink(it.link);
+      if (it.partner) it.partner.link = null;
+      it.link = null;
+    }
     if (!it.vis) return;
-    if (it.kind === 't') this.app.targets.release(it.vis);
+    if (it.vis.bomb) {
+      it.vis.busy = false;
+      it.vis.g.visible = false;
+    } else if (it.kind === 't') this.app.targets.release(it.vis);
     else this.app.targets.releaseBarrier(it.vis);
     it.vis = null;
   }
@@ -308,12 +339,22 @@ export class Game {
                 const l = pv.length();
                 if (l > 0.3) it.nearCos = (pv.x * gd.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + pv.y * gd.dir[1] + pv.z * gd.dir[2]) / l;
               }
-              if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 0.7 : RAD)) continue;
+              if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 0.7 : it.type === 'boss' ? RAD + GEO.targetR * 1.2 : it.type === 'bomb' ? RAD - 0.03 : RAD)) continue;
               this.contact(it, h, t);
               if (it.state !== 'fly') break;
             }
           }
-          if (it.state === 'fly' && !it.practice && t > it.tHit + JUDGE.late) this.miss(it);
+          if (it.state === 'fly' && !it.practice) {
+            if (it.type === 'bomb') {
+              // bomba proletěla netknutá → v pořádku
+              if (t > it.tHit + 0.3) {
+                it.state = 'gone';
+                this.bombsOk = (this.bombsOk || 0) + 1;
+              }
+            } else if (it.type === 'boss') {
+              if (t > it.tHit + (it.e.hold || 2) + JUDGE.late) this.miss(it);
+            } else if (t > it.tHit + JUDGE.late) this.miss(it);
+          }
         }
       } else if (it.state === 'fly') {
         // zvuk průletu: vrchol zvuku přesně v okamžiku průletu kolem hlavy, ze strany, kde bariéra je
@@ -353,12 +394,37 @@ export class Game {
   }
 
   contact(it, h, t) {
+    if (it.type === 'bomb') return this.bombHit(it, h, t);
+    if (it.type === 'boss') return this.bossHit(it, h, t);
     const app = this.app;
     // rozhoduje švih (špička za posledních 120 ms), ne rychlost v okamžiku doteku, kdy pěst už brzdí
     const spd = Math.max(h.speed, h.pk || 0);
     // směr: z okamžiku doteku (hook je oblouk – ve špičce švihu míří pěst jinam); jen při téměř stojící ruce ze špičky
     const vv = h.speed > 0.35 || !h.pk ? h.vel : h.pkVel;
     const sens = this.sens(it.type === 'finale' ? 'jab' : it.type);
+    if (it.practice && this.autocal) {
+      // kalibrace: úder sledovat ještě 0,25 s po prvním dotyku (max. švih, nejbližší průchod středem)
+      if (h.side !== it.side) return;
+      if (it.acT == null && spd < 0.8) return; // ruka jen leží v zóně
+      const g0 = GEO[it.type];
+      _d.copy(vv).normalize();
+      const cos = _d.x * g0.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g0.dir[1] + _d.z * g0.dir[2];
+      const dc = _v.subVectors(h.fist, it.pos).length();
+      if (it.acT == null) {
+        it.acT = t;
+        it.acSpd = spd;
+        it.acCos = cos;
+        it.acMin = dc;
+        app.fx.burst(it.pos, it.side === 'L' ? C_L : C_R, _d, 0.5, true, it.type !== 'jab');
+        app.audio && app.audio.play(it.type !== 'jab' ? 'hitBig' : 'hit', { gain: 0.9 });
+        it.vis.g.visible = false;
+      } else {
+        it.acSpd = Math.max(it.acSpd, spd);
+        it.acCos = Math.max(it.acCos, cos); // směr: nejlepší shoda během doteku
+        it.acMin = Math.min(it.acMin, dc);
+      }
+      return;
+    }
     const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
     if (h.side !== it.side && it.side !== 'B') {
       if (!it.wrongShown && spd > sens.v * 0.7) {
@@ -440,6 +506,17 @@ export class Game {
     it.t1 = t;
     this.log.push({ i: it.e.i, r: q, err, spd, dirOk });
     this.recItem(it, q, { e: Math.round(err * 1000), s: +spd.toFixed(2), s0: +h.speed.toFixed(2), c: +cos.toFixed(2), x: h.extrap ? 1 : 0 });
+    // dvojitý terč: obě pěsti do 0,15 s → bonus
+    if (it.e.pair != null) {
+      this.pairHit = this.pairHit || {};
+      const other = this.pairHit[it.e.pair];
+      if (other != null && t - other < 0.15) {
+        this.score += 150 * this.mult;
+        app.fx.text(null, _v.copy(it.pos).add(_a.set((it.side === 'L' ? 1 : -1) * 0.2, 0.35, 0)), 'DVOJITĚ! +' + 150 * this.mult, COL.goldCss, 'big');
+        app.audio && app.audio.play('perfect', { gain: 0.9 });
+      }
+      this.pairHit[it.e.pair] = t;
+    }
     this.logAttempt({ nm, spd, res: (dirOk ? '' : 'jiný směr · ') + { perfect: 'perfektní', great: 'skvělé', good: 'dobré' }[q] });
     // efekty
     const col = it.side === 'L' ? C_L : C_R;
@@ -470,6 +547,69 @@ export class Game {
       this.finaleDone = t;
     }
     this.milestone();
+  }
+
+  // bomba: zásah = výbuch, konec comba, srážka bodů
+  bombHit(it, h, t) {
+    const spd = Math.max(h.speed, h.pk || 0);
+    if (spd < 1.0 || it.state !== 'fly') return;
+    const app = this.app;
+    it.state = 'hit';
+    it.t1 = t;
+    this.bombsHit = (this.bombsHit || 0) + 1;
+    this.breakCombo();
+    this.score = Math.max(0, this.score - 300);
+    const red = new THREE.Color(0xff2a3a);
+    app.fx.burst(it.pos, red, _d.copy(h.vel).normalize(), 1, false, true);
+    app.fx.burst(it.pos, new THREE.Color(0xff9a2a), _d, 0.6, false, true);
+    app.fx.text(null, _v.copy(it.pos).add(_a.set(0, 0.25, 0)), 'BOMBA! −300', '#ff5a5a');
+    app.audio && app.audio.play('barrierHit', { gain: 1 });
+    app.audio && app.audio.play('hitBig', { gain: 0.8, rate: 0.6 });
+    app.hurt = 1;
+    if (this.rec) this.rec.items.push({ t: +it.tHit.toFixed(2), ty: 'bomb', h: h.side, r: 'bomb' });
+  }
+
+  // boss: visí před hráčem, každý úder odštípne díl; po posledním dílu velký výbuch
+  bossHit(it, h, t) {
+    if (it.state !== 'fly' || t < it.tHit - JUDGE.late) return;
+    const spd = Math.max(h.speed, h.pk || 0);
+    const sens = this.sens('jab');
+    it.cool = it.cool || { L: 0, R: 0 };
+    if (spd < sens.v || t < it.cool[h.side]) return;
+    it.cool[h.side] = t + 0.18;
+    const app = this.app;
+    const power = clamp((spd - 2) / 4, 0, 1);
+    _d.copy(h.vel).normalize();
+    const left = app.targets.chip(it.vis, _d, power);
+    it.bump = 1;
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.mult = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
+    const pts = 80 * this.mult;
+    this.score += pts;
+    this.punchLog.push(t);
+    if (h.side === 'L') this.punchesL++;
+    else this.punchesR++;
+    app.fx.burst(_p.copy(h.fist), new THREE.Color(COL.gold), _d, power, false, false);
+    app.fx.text(null, _v.copy(it.pos).add(_a.set((h.side === 'L' ? -1 : 1) * 0.3, 0.1, 0)), '+' + pts, COL.goldCss, 'score');
+    app.audio && app.audio.play('hitBig', { gain: 0.9, rate: h.side === 'L' ? 1.07 : 0.95 });
+    app.hands.gloves[h.side].flash = 1;
+    if (this.mult > (this.prevMult || 1)) this.multUp();
+    this.prevMult = this.mult;
+    if (left === 0) {
+      it.state = 'hit';
+      it.t1 = t;
+      this.hits++;
+      this.speedSum += spd;
+      this.score += 600 * this.mult;
+      app.targets.shatter(it.vis, _d, 1);
+      app.fx.burst(it.pos, new THREE.Color(COL.gold), _d, 1, true, true);
+      app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 3, this.calib.cz - 10), [C_L, C_R, new THREE.Color(COL.gold)]);
+      app.fx.text(null, _v.copy(it.pos).add(_a.set(0, 0.45, 0)), 'BOSS PORAŽEN!', COL.goldCss, 'big');
+      app.audio && app.audio.play('finish', { gain: 0.8 });
+      this.log.push({ i: it.e.i, r: 'perfect', err: 0, spd, dirOk: true });
+      this.recItem(it, 'boss', { s: +spd.toFixed(2) });
+    }
   }
 
   // nový násobič: zlatá vlna po hladině + velké „×N“
@@ -553,6 +693,21 @@ export class Game {
     const v = it.vis;
     if (!v) return;
     const tp = this.app.targets;
+    if (it.link && it.partner && it.state === 'fly' && it.partner.state === 'fly' && it.side === 'L') tp.placeLink(it.link, it.pos, it.partner.pos, clamp((t - (it.tHit - this.flight)) / 0.4, 0, 1));
+    else if (it.link && (it.state !== 'fly' || !it.partner || it.partner.state !== 'fly')) {
+      tp.releaseLink(it.link);
+      if (it.partner) it.partner.link = null;
+      it.link = null;
+    }
+    if (v.bomb) {
+      v.g.position.copy(it.pos);
+      if (it.state === 'fly') {
+        const pop = clamp((t - (it.tHit - this.flight)) / 0.25, 0, 1);
+        v.g.scale.setScalar(0.3 + 0.7 * pop);
+        tp.animateBomb(v, it.tHit - t, dt);
+      } else it.state = 'gone';
+      return;
+    }
     if (it.kind === 't') {
       const g = v.g;
       if (it.state === 'fly') {
@@ -623,7 +778,69 @@ export class Game {
     this.practiceNext = 0;
     this.practiceSeq = [['jab', 'L'], ['jab', 'R'], ['hook', 'L'], ['hook', 'R'], ['upper', 'L'], ['upper', 'R']];
   }
+  // automatická kalibrace: 12 zkušebních terčů s mírným vyhodnocením, změří švih, směr a přesnost
+  startAutoCal(calib) {
+    const S = this.app.settings;
+    this.startPractice(calib);
+    this.practiceSeq = [['jab', 'L'], ['jab', 'R'], ['hook', 'L'], ['hook', 'R'], ['upper', 'L'], ['upper', 'R'], ['jab', 'R'], ['jab', 'L'], ['hook', 'R'], ['hook', 'L'], ['upper', 'R'], ['upper', 'L']];
+    this.autocal = { res: [], saved: { sens: { ...S.sens }, zone: S.zone } };
+    S.sens = { jab: 5, hook: 5, upper: 5 };
+    S.zone = 5;
+  }
+  finishAutoCal() {
+    const app = this.app, S = app.settings, ac = this.autocal;
+    this.autocal = null;
+    const hits = ac.res.filter((x) => !x.miss);
+    const med = (a) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
+    const q = (a, p) => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.floor(p * b.length))] : null; };
+    if (hits.length < 6) {
+      S.sens = ac.saved.sens;
+      S.zone = ac.saved.zone;
+      app.calMsg = `Kalibrace se nepovedla – trefil jsi ${hits.length} z 12. Zkus to znovu.`;
+    } else {
+      const sens = {};
+      const parts = [];
+      for (const ty of ['jab', 'hook', 'upper']) {
+        const h = hits.filter((x) => x.type === ty);
+        if (!h.length) {
+          sens[ty] = ac.saved.sens[ty];
+          continue;
+        }
+        const m = med(h.map((x) => x.spd));
+        const c25 = q(h.map((x) => x.cos), 0.25);
+        // nejpřísnější stupeň, který projde většina tvých úderů (práh ≤ 55 % tvého typického švihu, směr s rezervou)
+        let lv = 5;
+        for (let l = 1; l <= 5; l++) {
+          const sv = SENS[l - 1];
+          if (sv.v <= m * 0.55 && sv.cos <= c25 - 0.08) {
+            lv = l;
+            break;
+          }
+        }
+        sens[ty] = Math.max(2, lv);
+        parts.push(`${PUNCH_NAMES[ty]} ${ac.saved.sens[ty]}→${sens[ty]} (švih ${m.toFixed(1)} m/s)`);
+      }
+      // zóna: jak daleko od středu terče typicky trefuješ
+      const need = q(hits.map((x) => x.d - GEO.targetR - GEO.fistR), 0.85);
+      let zl = 5;
+      for (let l = 1; l <= 5; l++) if (ZONE[l - 1].tol >= need + 0.01) { zl = l; break; }
+      S.sens = sens;
+      S.zone = Math.max(2, zl);
+      parts.push(`zóna ${ac.saved.zone}→${S.zone}`);
+      app.calMsg = 'Nastaveno: ' + parts.join(' · ') + ` · trefeno ${hits.length}/12`;
+    }
+    app.saveSettings();
+    this.stopPractice();
+    app.onAutoCalDone && app.onAutoCalDone();
+  }
+
   stopPractice() {
+    if (this.autocal) {
+      // přerušená kalibrace → vrátit původní nastavení
+      this.app.settings.sens = this.autocal.saved.sens;
+      this.app.settings.zone = this.autocal.saved.zone;
+      this.autocal = null;
+    }
     this.practiceMode = false;
     this.running = false;
     for (const it of this.items) this.releaseItem(it);
@@ -631,10 +848,29 @@ export class Game {
   }
   updatePractice(t, dt, hands, head) {
     if (!this.practiceMode) return;
-    if (!this.items.some((i) => i.state === 'fly') && t >= this.practiceNext) {
+    if (this.autocal) {
+      for (const it of this.items) if (it.state === 'fly' && it.acT != null && t - it.acT > 0.25) {
+        this.autocal.res.push({ type: it.type, spd: it.acSpd, cos: it.acCos, d: it.acMin });
+        this.logAttempt({ nm: PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P'), spd: it.acSpd, res: 'změřeno' });
+        it.state = 'gone';
+        this.practiceNext = t + 0.45;
+      }
+      // neodbitý terč po 5 s přeskočit
+      for (const it of this.items) if (it.state === 'fly' && it.acT == null && t - it.born > 5) {
+        this.autocal.res.push({ type: it.type, miss: true, pk: it.nearPk || 0 });
+        it.state = 'gone';
+        this.practiceNext = t + 0.3;
+      }
+      if (this.practiceIdx >= this.practiceSeq.length && !this.items.some((i) => i.state === 'fly') && t >= this.practiceNext) {
+        this.finishAutoCal();
+        return;
+      }
+    }
+    if (!this.items.some((i) => i.state === 'fly') && t >= this.practiceNext && (!this.autocal || this.practiceIdx < this.practiceSeq.length)) {
       const [type, hand] = this.practiceSeq[this.practiceIdx++ % this.practiceSeq.length];
       const it = this.spawn({ i: -1, kind: 't', type, hand, sx: 0, sy: 0, t: t + 99, low: false });
       it.practice = true;
+      it.born = t;
       it.far.set(0, 0, 0);
     }
     this.t = t;

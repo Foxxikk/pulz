@@ -17,6 +17,11 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v9
+- **Automatická kalibrace** (Nastavení → Automatická kalibrace): 12 zkušebních terčů, hra změří tvůj švih, směr úderů a jak přesně trefuješ, a sama nastaví citlivost každého úderu i zónu zásahu.
+- **Nové typy terčů**: *dvojitý* (obě pěsti zároveň, spojené světelným paprskem, bonus za současný úder), *zakřivený let* (přiletí obloukem ze strany), *rychlá série* (menší terče v gradaci), *bomba* (červená ostnatá – netrefit, jinak −300 a konec comba), *boss* (velký zlatý terč uprostřed skladby, visí před tebou ~2 s a rozbíjí se po dílech rychlými údery).
+- **Výkon na Questu**: skutečné měření FPS (dřív zkreslené), automatické snížení efektů, když hra nestíhá obnovovací frekvenci headsetu (a vrácení, když zase stíhá). FPS lze zobrazit v nastavení.
+
 ## Novinky v8
 - **Moje skladby**: „Nahrát skladby (MP3)“ přidává do seznamu (i víc souborů najednou), nic se nepřepisuje. Seznam je na stránce i v menu ve VR („Moje skladby“). Po odemknutí PINem se skladby z tohoto zařízení samy nahrají do knihovny na serveru → uvidíš je i na Questu (a naopak).
 - **Plynulé spirály půlkruhů**: série 6–15 půlkruhů po půldobách, každý pootočený o 22,5° → hlava plynule opisuje oblouk z úklonu přes podřep na druhou stranu.
