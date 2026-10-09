@@ -393,22 +393,16 @@ export class AudioSys {
   async renderSfx() {
     const sr = this.ctx.sampleRate;
     const defs = {
-      hit: [0.5, (k, d) => {
-        k.tone(0, 130, 0.16, 0.9, 'sine', d, 48);
-        k.noiseBurst(0, 0.07, 0.6, 'bandpass', 2600, 1, d);
-        k.noiseBurst(0.005, 0.25, 0.25, 'highpass', 5000, 0.7, d);
-        [2900, 3700, 4600].forEach((f, i) => k.tone(0.01 + i * 0.012, f, 0.12, 0.05, 'sine', d));
+      // zásah = buben (hodí se k téměř každé hudbě); výšku mění ruka přes playbackRate
+      hit: [0.45, (k, d) => {
+        k.drum(0, 132, 0.3, 1.0, d, { click: 3400, clickV: 0.5, skin: 1300, skinV: 0.32 });
       }],
-      hitBig: [0.7, (k, d) => {
-        k.tone(0, 110, 0.25, 1, 'sine', d, 38);
-        k.noiseBurst(0, 0.1, 0.7, 'bandpass', 1800, 0.8, d);
-        k.noiseBurst(0.005, 0.4, 0.3, 'highpass', 4200, 0.7, d);
-        [2400, 3100, 3900, 5200].forEach((f, i) => k.tone(0.01 + i * 0.015, f, 0.16, 0.05, 'sine', d));
+      hitBig: [0.6, (k, d) => {
+        k.drum(0, 92, 0.42, 1.0, d, { click: 2600, clickV: 0.6, skin: 950, skinV: 0.38 });
+        k.kick(0, 0.55, d);
       }],
-      perfect: [0.9, (k, d) => {
-        k.tone(0, 1568, 0.5, 0.16, 'sine', d);
-        k.tone(0.0, 2349, 0.45, 0.09, 'sine', d);
-        k.tone(0.03, 3136, 0.35, 0.05, 'triangle', d);
+      perfect: [0.3, (k, d) => {
+        k.snare(0, 0.32, d);
       }],
       weak: [0.2, (k, d) => {
         k.tone(0, 420, 0.06, 0.35, 'triangle', d, 300);
@@ -446,8 +440,12 @@ export class AudioSys {
         k.tone(0.12, 660, 0.16, 0.22, 'sine', d);
       }],
       finish: [1.8, (k, d) => {
-        [60, 64, 67, 72, 76].forEach((m, i) => k.tone(i * 0.09, 440 * Math.pow(2, (m - 69) / 12), 1.2 - i * 0.1, 0.15, 'triangle', d));
-        k.crash(0.36, 0.25, d);
+        k.drum(0, 110, 0.3, 0.8, d);
+        k.drum(0.09, 92, 0.3, 0.85, d);
+        k.drum(0.18, 76, 0.4, 0.9, d);
+        k.kick(0.36, 1, d);
+        k.drum(0.36, 70, 0.6, 0.9, d);
+        k.crash(0.36, 0.3, d);
       }],
       splash: [0.4, (k, d) => {
         k.noiseBurst(0, 0.3, 0.18, 'bandpass', 900, 0.6, d, 2500);
@@ -460,7 +458,13 @@ export class AudioSys {
       g.gain.value = 0.9;
       g.connect(oc.destination);
       fn(k, g);
-      this.sfx[name] = await oc.startRendering();
+      const buf = await oc.startRendering();
+      // normalizace špičky (žádné zkreslení při sčítání více zásahů)
+      const ch = buf.getChannelData(0);
+      let pk = 0;
+      for (let i = 0; i < ch.length; i++) pk = Math.max(pk, Math.abs(ch[i]));
+      if (pk > 0.85) for (let i = 0; i < ch.length; i++) ch[i] *= 0.85 / pk;
+      this.sfx[name] = buf;
     }
   }
 

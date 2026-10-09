@@ -28,4 +28,14 @@ await page.evaluate(async () => {
 await page.screenshot({ path: OUT + '/shatter1.png' });
 await page.evaluate(() => { const a = window.__app; for (let k = 0; k < 14; k++) { a.targets.update(1/60); a.fx.update(1/60, a.camera.position); } a.renderer.render(a.scene, a.camera); });
 await page.screenshot({ path: OUT + '/shatter2.png' });
+await page.evaluate(() => {
+  const a = window.__app; for (const o of window.__objs) a.targets.release(o);
+  window.__objs = [];
+  const items = [['L','jab',-0.36,1.55,-0.75],['R','hook',0.0,1.55,-0.75],['L','upper',0.36,1.55,-0.75],['B','finale',0.0,1.85,-1.6]];
+  for (const [s,t,x,y,z] of items) { const o = a.targets.get(s,t); o.g.position.set(x,y,z); o.g.scale.setScalar(o.base); a.targets.animateTarget(o, 0.5, 1, 0.06, 0.03); window.__objs.push(o); }
+  a.targets.update(0.1);
+  a.camera.position.set(0.15,1.58,0); a.camera.lookAt(0, 1.6, -0.9); a.camera.fov = 60; a.camera.updateProjectionMatrix();
+  a.renderer.render(a.scene, a.camera);
+});
+await page.screenshot({ path: OUT + '/discs-close.png' });
 await browser.close();

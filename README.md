@@ -16,6 +16,11 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v5
+- **Vypouklé terče**: čelo každé výseče je lesklá lakovaná kopule (clearcoat), po které běhají odlesky z okolí. Terč na hook je natočený čelem do strany, odkud přichází pěst, terč na zvedák čelem dolů (natočení ~40°, aby zůstal čitelný). Úlomky po zásahu jsou vypouklé taky.
+- **Zvuk zásahu jako buben**: místo kovového cinknutí tom s úderem paličky (směr: levá ruka vyšší tom, pravá nižší), hook/zvedák hlubší tom s kopákem, perfektní zásah přidá virbl. Bez tónové výšky, takže sedí k téměř každé hudbě. Finále = bubnový přechod s činelem.
+- **Efekty**: rázová vlna v rovině čela terče, u perfektního zásahu zlatá vlna a hvězdicový záblesk; kolem plošiny ekvalizér ze svítících sloupků (vlevo modrá, vpravo oranžová), pulzuje do rytmu a po zásahu jím proběhne vlna ze směru terče; podlahou se s každou dobou rozběhne kruh, obruba plošiny pulzuje.
+
 ## Novinky v4
 - **Létající 3D terče jako ve FunFitLandu**: tmavý zkosený disk složený ze šesti výsečí, spáry svítí barvou ruky, uprostřed ikona. Po zásahu se výseče rozletí do stran i ve směru úderu, k tomu jiskry a záblesk.
 - **Rytmus vlastní skladby**: terče už nestojí na pravidelné mřížce, ale na skutečných úderech v hudbě (bicí, akcenty) zarovnaných na doby a půldoby. Silné akcenty = hook/zvedák, hustota podle části skladby. Na skladbě Believer: 96 % terčů přesně na úderu v hudbě (průměrná odchylka 14 ms, dřív 36 ms), na nejsilnějších úderech 33–46 % (dřív ~20 %). Terč navíc přilétá svižněji, takže okamžik úderu je zřetelný.

@@ -1152,6 +1152,7 @@ class App {
     this.hurtMesh.position.copy(this.head);
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
+    this.env.beat = this.screen === 'play' ? this.beatPulse : 0;
     this.env.update(dt);
     this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0);
     this.fx.splashOn = this.env.splash;

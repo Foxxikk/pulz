@@ -202,6 +202,65 @@ export class Kit {
     n.connect(hp).connect(g).connect(dest);
   }
 
+  // bubnová blána: rychlý pokles výšky, dva módy blány, úder paličky a šum kůže
+  drum(t, f, dur, v, dest, opts = {}) {
+    const oc = this.oc;
+    const o = oc.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f * 2.1, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.025);
+    o.frequency.exponentialRampToValueAtTime(f * 0.78, t + dur);
+    const g = this.gain(0);
+    this.env(g.gain, t, 0.002, v, dur);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+    // druhý mód blány (1,59×) – „tělo“ tomu, krátký
+    const o2 = oc.createOscillator();
+    o2.type = 'sine';
+    o2.frequency.setValueAtTime(f * 1.59 * 1.6, t);
+    o2.frequency.exponentialRampToValueAtTime(f * 1.59, t + 0.02);
+    const g2 = this.gain(0);
+    this.env(g2.gain, t, 0.002, v * 0.32, dur * 0.4);
+    o2.connect(g2).connect(dest);
+    o2.start(t);
+    o2.stop(t + dur);
+    // palička (klik)
+    const n = this.noiseSrc(t, 0.02);
+    const bp = this.filt('bandpass', opts.click || 3200, 0.9);
+    const g3 = this.gain(0);
+    this.env(g3.gain, t, 0.0008, v * (opts.clickV ?? 0.55), 0.014);
+    n.connect(bp).connect(g3).connect(dest);
+    // kůže / rezonance korpusu
+    const n2 = this.noiseSrc(t, dur * 0.5);
+    const lp = this.filt('lowpass', opts.skin || 1100, 0.6);
+    lp.frequency.setValueAtTime(opts.skin || 1100, t);
+    lp.frequency.exponentialRampToValueAtTime(240, t + dur * 0.5);
+    const g4 = this.gain(0);
+    this.env(g4.gain, t, 0.001, v * (opts.skinV ?? 0.3), dur * 0.35);
+    n2.connect(lp).connect(g4).connect(dest);
+  }
+
+  // pruty snare (kostra snare bez tónu), na perfektní zásah
+  snare(t, v, dest) {
+    const n = this.noiseSrc(t, 0.22);
+    const hp = this.filt('highpass', 1600, 0.7);
+    const bp = this.filt('peaking', 4200, 1);
+    bp.gain.value = 5;
+    const g = this.gain(0);
+    this.env(g.gain, t, 0.001, v, 0.17);
+    n.connect(hp).connect(bp).connect(g).connect(dest);
+    const o = this.oc.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(330, t);
+    o.frequency.exponentialRampToValueAtTime(190, t + 0.06);
+    const g2 = this.gain(0);
+    this.env(g2.gain, t, 0.001, v * 0.5, 0.07);
+    o.connect(g2).connect(dest);
+    o.start(t);
+    o.stop(t + 0.12);
+  }
+
   impact(t, v, dest) {
     const o = this.oc.createOscillator();
     o.type = 'sine';

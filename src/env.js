@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng } from './util.js';
 
+const _up = new THREE.Vector3(0, 1, 0);
+
 const FOG = new THREE.Color(0xcde8ee);
 export const WATER_Y = -0.16;
 
@@ -557,8 +559,105 @@ export class Env {
       mk.position.set(Math.sin(a) * 0.79, 0.0, -Math.cos(a) * 0.79);
       g.add(mk);
     }
+    // svítící obruba plošiny
+    this.rimMat = new THREE.MeshBasicMaterial({ color: 0x7fb4ff, toneMapped: false, transparent: true, opacity: 0.55 });
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.845, 0.008, 6, 96), this.rimMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = 0.002;
+    g.add(rim);
+    // ekvalizér: sloupky kolem plošiny, pulzují do rytmu, po zásahu jimi proběhne vlna
+    const N = 48;
+    this.eqN = N;
+    const bar = new THREE.BoxGeometry(0.022, 1, 0.012);
+    bar.translate(0, 0.5, 0);
+    this.eq = new THREE.InstancedMesh(bar, new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }), N);
+    this.eq.frustumCulled = false;
+    this.eqAng = [];
+    this.eqBase = [];
+    const cL = new THREE.Color(0x3d8fff), cR = new THREE.Color(0xff8c26);
+    for (let i = 0; i < N; i++) {
+      const a = (i / N) * Math.PI * 2;
+      this.eqAng.push(a);
+      // vlevo modrá, vpravo oranžová, plynulý přechod vpředu a vzadu
+      const k = 0.5 + 0.5 * Math.sin(a);
+      this.eqBase.push(cL.clone().lerp(cR, k));
+      this.eq.setColorAt(i, this.eqBase[i]);
+    }
+    this.eq.instanceColor.needsUpdate = true;
+    g.add(this.eq);
+    this.eqLevel = new Float32Array(N);
+    this.waves = [];
+    this._m4 = new THREE.Matrix4();
+    this._q4 = new THREE.Quaternion();
+    this._s4 = new THREE.Vector3();
+    this._p4 = new THREE.Vector3();
+    this._c4 = new THREE.Color();
+    // vlnka po podlaze na každou dobu
+    this.rippleMat = new THREE.ShaderMaterial({
+      uniforms: { uR: { value: 0 }, uOp: { value: 0 }, uC: { value: new THREE.Color(0x9fd0ff) } },
+      vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader: 'uniform float uR; uniform float uOp; uniform vec3 uC; varying vec2 vP; void main(){ float d = length(vP); float a = exp(-pow((d-uR)/0.025, 2.0)) * smoothstep(0.84, 0.7, d); gl_FragColor = vec4(uC*1.3, a*uOp); }',
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const rp = new THREE.Mesh(new THREE.CircleGeometry(0.84, 64), this.rippleMat);
+    rp.rotation.x = -Math.PI / 2;
+    rp.position.y = 0.004;
+    g.add(rp);
+    this.ripT = 9;
+    this.beat = 0;
+    this.lastBeat = 0;
+    this.energy = 0;
     this.platform = g;
     this.scene.add(g);
+  }
+
+  // zásah: vlna ekvalizérem ze směru terče (úhel kolem hráče, 0 = vpředu, + = vpravo)
+  kick(angle, color, power = 1) {
+    if (this.waves.length > 8) this.waves.shift();
+    this.waves.push({ a: angle, t: 0, c: color.clone(), p: power });
+    this.energy = Math.min(1.5, this.energy + 0.25 * power);
+  }
+
+  updateFx(dt) {
+    // nová doba → vlnka po podlaze
+    if (this.beat > 0.8 && this.lastBeat <= 0.8) this.ripT = 0;
+    this.lastBeat = this.beat;
+    this.ripT += dt;
+    const rk = this.ripT / 0.7;
+    this.rippleMat.uniforms.uR.value = 0.08 + rk * 0.8;
+    this.rippleMat.uniforms.uOp.value = rk < 1 ? (1 - rk) * 0.55 : 0;
+    this.energy = Math.max(0, this.energy - dt * 0.35);
+    this.rimMat.opacity = 0.35 + this.beat * 0.4 + Math.min(1, this.energy) * 0.25;
+    for (const w of this.waves) w.t += dt;
+    this.waves = this.waves.filter((w) => w.t < 0.9);
+    const N = this.eqN, m = this._m4, q = this._q4, sc = this._s4, p = this._p4, c = this._c4;
+    for (let i = 0; i < N; i++) {
+      const a = this.eqAng[i];
+      // „spektrum“: pomalu se vlnící základ + puls doby
+      let h = 0.03 + 0.05 * (0.5 + 0.5 * Math.sin(a * 3 + this.t * 1.7)) * (0.4 + this.energy * 0.6) + this.beat * (0.06 + 0.05 * Math.sin(a * 5 + 1.3));
+      let wc = 0;
+      c.copy(this.eqBase[i]);
+      for (const w of this.waves) {
+        // úhlová vzdálenost vlny a sloupku (sloupek leží na úhlu π − a v soustavě hráče)
+        let d = Math.abs((((Math.PI - a - w.a) % 6.2832) + 9.4248) % 6.2832 - 3.1416);
+        const front = w.t * 7;
+        const k = Math.exp(-Math.pow((d - front) / 0.35, 2)) * (1 - w.t / 0.9) * w.p;
+        if (k > wc) wc = k;
+        if (k > 0.05) c.lerp(w.c, Math.min(1, k));
+      }
+      h += wc * 0.28;
+      const lv = (this.eqLevel[i] = Math.max(h, this.eqLevel[i] - dt * 1.2));
+      p.set(Math.sin(a) * 0.9, 0, Math.cos(a) * 0.9);
+      q.setFromAxisAngle(_up, a);
+      sc.set(1, lv, 1);
+      m.compose(p, q, sc);
+      this.eq.setMatrixAt(i, m);
+      this.eq.setColorAt(i, c.multiplyScalar(0.45 + this.beat * 0.35 + wc * 0.45));
+    }
+    this.eq.instanceMatrix.needsUpdate = true;
+    this.eq.instanceColor.needsUpdate = true;
   }
 
   update(dt) {
@@ -567,5 +666,6 @@ export class Env {
     // plošina se jen nepatrně houpe (kamera ne)
     this.platform.position.y = Math.sin(this.t * 1.1) * 0.006;
     this.platform.rotation.z = Math.sin(this.t * 0.8) * 0.004;
+    this.updateFx(dt);
   }
 }

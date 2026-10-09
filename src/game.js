@@ -4,6 +4,7 @@ import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES } from './config.js';
 import { clamp } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
+const _qf = new THREE.Quaternion();
 const C_L = new THREE.Color(COL.L), C_R = new THREE.Color(COL.R);
 
 export class Game {
@@ -289,7 +290,9 @@ export class Game {
     if (it.practice) {
       it.state = 'hit';
       const col = it.side === 'L' ? C_L : C_R;
-      app.fx.burst(it.pos, col, _d, clamp((spd - 2) / 4, 0, 1), true, it.type !== 'jab');
+      it.vis.g.updateMatrixWorld(true);
+      it.vis.orient.getWorldQuaternion(_qf);
+      app.fx.burst(it.pos, col, _d, clamp((spd - 2) / 4, 0, 1), true, it.type !== 'jab', _qf);
       it.vis.g.position.copy(it.pos);
       app.targets.shatter(it.vis, _d, clamp((spd - 2) / 4, 0, 1));
       app.audio && app.audio.play(it.type !== 'jab' ? 'hitBig' : 'hit', { gain: 0.9 });
@@ -330,14 +333,19 @@ export class Game {
     const col = it.side === 'L' ? C_L : C_R;
     const big = it.type !== 'jab';
     _p.copy(it.pos);
-    app.fx.burst(_p, it.side === 'B' ? new THREE.Color(COL.gold) : col, _d, power, q === 'perfect', big);
+    it.vis.g.position.copy(_p);
+    it.vis.g.updateMatrixWorld(true);
+    it.vis.orient.getWorldQuaternion(_qf);
+    app.fx.burst(_p, it.side === 'B' ? new THREE.Color(COL.gold) : col, _d, power, q === 'perfect', big, _qf);
+    app.env.kick && app.env.kick(Math.atan2(it.pos.x - this.calib.cx, -(it.pos.z - this.calib.cz)), it.side === 'B' ? new THREE.Color(COL.gold) : col, 0.6 + power * 0.4);
     it.vis.g.position.copy(_p);
     app.targets.shatter(it.vis, _d, power);
     app.fx.text(label, _v.copy(_p).add(_a.set(0, 0.2, 0)));
     app.hands.gloves[h.side].flash = 1;
     if (app.audio) {
       const pan = (it.pos.x - this.calib.cx) * 3;
-      app.audio.play(big ? 'hitBig' : 'hit', { pan, gain: 0.8 + power * 0.3, rate: 0.95 + Math.random() * 0.1 });
+      // dva „tomy“: levá ruka výš, pravá níž (jako když hraješ na bicí)
+      app.audio.play(big ? 'hitBig' : 'hit', { pan, gain: 0.85 + power * 0.3, rate: (h.side === 'L' ? 1.07 : 0.95) + (Math.random() - 0.5) * 0.02 });
       if (q === 'perfect') app.audio.play('perfect', { pan, gain: 0.7 });
     }
     if (it.type === 'finale') {

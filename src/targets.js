@@ -5,10 +5,13 @@
 import * as THREE from 'three';
 import { COL, GEO } from './config.js';
 import { drawHexIcon } from './hands.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const R = GEO.targetR;
 const SEG = 6;
-const DEPTH = 0.05;
+const DEPTH = 0.046;
+const DOME = 0.042; // výška vypouklého čela
+const TILT = 0.72; // natočení hooku/zvedáku proti pěsti (rad)
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3(), _e = new THREE.Euler();
 
 function faceTexture(color, gold) {
@@ -16,46 +19,37 @@ function faceTexture(color, gold) {
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
-  const bg = g.createRadialGradient(S / 2, S * 0.42, 0, S / 2, S / 2, S / 2);
-  bg.addColorStop(0, gold ? '#3a2a08' : '#1d2a44');
-  bg.addColorStop(0.75, gold ? '#1c1404' : '#0b1222');
-  bg.addColorStop(1, '#04070d');
+  const col = new THREE.Color(color);
+  const css = (k, a = 1) => `rgba(${Math.round(Math.min(1, col.r * k) * 255)},${Math.round(Math.min(1, col.g * k) * 255)},${Math.round(Math.min(1, col.b * k) * 255)},${a})`;
+  // barevné tělo: tmavší střed → sytá barva → světlejší okraj
+  const bg = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  bg.addColorStop(0, css(0.35));
+  bg.addColorStop(0.42, css(0.62));
+  bg.addColorStop(0.78, css(0.95));
+  bg.addColorStop(0.86, css(0.28));
+  bg.addColorStop(0.9, css(1.15));
+  bg.addColorStop(1, css(0.5));
   g.fillStyle = bg;
   g.fillRect(0, 0, S, S);
   // jemné soustředné drážky
-  g.strokeStyle = 'rgba(255,255,255,0.06)';
-  g.lineWidth = 3;
-  for (let r = 60; r < S / 2; r += 26) {
+  g.strokeStyle = 'rgba(0,0,0,0.18)';
+  g.lineWidth = 2;
+  for (let r = 70; r < S * 0.4; r += 22) {
     g.beginPath();
     g.arc(S / 2, S / 2, r, 0, Math.PI * 2);
     g.stroke();
   }
-  // svítící vnitřní obrys
-  g.save();
-  g.shadowColor = color;
-  g.shadowBlur = 30;
-  g.strokeStyle = color;
-  g.lineWidth = 10;
+  // tmavý terčík pod ikonou
+  g.fillStyle = gold ? 'rgba(40,24,0,0.55)' : 'rgba(5,10,24,0.55)';
   g.beginPath();
-  g.arc(S / 2, S / 2, S * 0.43, 0, Math.PI * 2);
-  g.stroke();
-  g.restore();
-  drawHexIcon(g, S / 2, S / 2, S * 0.22, color);
-  g.globalAlpha = 0.5;
-  drawHexIcon(g, S / 2, S / 2, S * 0.12, '#ffffff', false);
-  g.globalAlpha = 1;
-  // odlesk nahoře
-  const hl = g.createLinearGradient(0, 0, 0, S * 0.5);
-  hl.addColorStop(0, 'rgba(255,255,255,0.10)');
-  hl.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = hl;
-  g.beginPath();
-  g.ellipse(S / 2, S * 0.28, S * 0.36, S * 0.18, 0, 0, Math.PI * 2);
+  g.arc(S / 2, S / 2, S * 0.27, 0, Math.PI * 2);
   g.fill();
+  const lite = col.clone().lerp(new THREE.Color(1, 1, 1), 0.55);
+  drawHexIcon(g, S / 2, S / 2, S * 0.17, '#' + lite.getHexString());
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
-  // UV víček = souřadnice v metrech → přepočet na 0..1
+  // UV čela = souřadnice v metrech → přepočet na 0..1
   t.repeat.set(1 / (2 * R), 1 / (2 * R));
   t.offset.set(0.5, 0.5);
   return t;
@@ -77,8 +71,9 @@ function glowTexture() {
   return t;
 }
 
-// výseč k disku: postavená přímo na svém místě (UV čela = souvislý obraz přes celý disk),
-// geometrie posunutá tak, aby se kus po zásahu točil kolem vlastního těžiště
+// výseč k disku: plášť (vytažený tvar se zkosením) + vypouklé čelo (kopule s hladkými normálami).
+// Postavená přímo na svém místě (UV čela = souvislý obraz přes celý disk),
+// geometrie posunutá tak, aby se kus po zásahu točil kolem vlastního těžiště.
 function wedgeGeometry(k) {
   const half = Math.PI / SEG;
   const a = (k / SEG) * Math.PI * 2;
@@ -93,10 +88,47 @@ function wedgeGeometry(k) {
   s.absarc(0, 0, ro, a0, a1, false);
   s.lineTo(Math.cos(b1) * ri, Math.sin(b1) * ri);
   s.absarc(0, 0, ri, b1, b0, true);
-  const g = new THREE.ExtrudeGeometry(s, { depth: DEPTH - 0.012, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.007, bevelSegments: 3, curveSegments: 10 });
+  const d = DEPTH - 0.012;
+  const slab = new THREE.ExtrudeGeometry(s, { depth: d, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.007, bevelSegments: 3, curveSegments: 10 });
+  slab.translate(0, 0, -d / 2);
+  slab.computeVertexNormals();
+  slab.clearGroups();
+  // kopule: polární mřížka nad čelem pláště
+  const zf = d / 2 + 0.006;
+  const NR = 7, NA = 10;
+  const pos = [], nor = [], uv = [], idx = [];
+  const rIn = ri + 0.007, rOut = ro + 0.004;
+  for (let i = 0; i <= NR; i++) {
+    const r = rIn + (rOut - rIn) * (i / NR);
+    const ga = gap / Math.max(r, 0.02);
+    for (let j = 0; j <= NA; j++) {
+      const th = a - half + ga + (2 * half - 2 * ga) * (j / NA);
+      const x = Math.cos(th) * r, y = Math.sin(th) * r;
+      const q = r / (R + 0.004);
+      const z = zf + DOME * (1 - q * q) - 0.001;
+      pos.push(x, y, z);
+      const nx = (2 * DOME * x) / ((R + 0.004) * (R + 0.004)), ny = (2 * DOME * y) / ((R + 0.004) * (R + 0.004));
+      const l = Math.hypot(nx, ny, 1);
+      nor.push(nx / l, ny / l, 1 / l);
+      uv.push(x, y);
+    }
+  }
+  for (let i = 0; i < NR; i++)
+    for (let j = 0; j < NA; j++) {
+      const p0 = i * (NA + 1) + j, p1 = p0 + 1, p2 = p0 + NA + 1, p3 = p2 + 1;
+      idx.push(p0, p3, p1, p0, p2, p3);
+    }
+  // boční „stěna“ kopule u spár (aby výseč byla uzavřené těleso i při rozletu)
+  const cap = new THREE.BufferGeometry();
+  cap.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  cap.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  cap.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  cap.setIndex(idx);
+  const capN = cap.toNonIndexed();
+  const g = mergeGeometries([capN, slab], true);
   const c = new THREE.Vector3(Math.cos(a) * R * 0.6, Math.sin(a) * R * 0.6, 0);
-  g.translate(-c.x, -c.y, -(DEPTH - 0.012) / 2);
-  g.computeVertexNormals();
+  g.translate(-c.x, -c.y, 0);
+  g.computeBoundingSphere();
   return { g, c };
 }
 
@@ -140,7 +172,8 @@ export class TargetPool {
       const c = new THREE.Color(hex);
       const css = '#' + c.getHexString();
       return {
-        face: new THREE.MeshStandardMaterial({ map: faceTexture(css, gold), metalness: 0.55, roughness: 0.28, envMapIntensity: 1.6, emissive: c.clone(), emissiveIntensity: 0.06 }),
+        // lakované vypouklé čelo: odlesky z okolí běhají po kopuli
+        face: new THREE.MeshPhysicalMaterial({ map: faceTexture(css, gold), metalness: 0.15, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.5, emissive: c.clone(), emissiveIntensity: 0.14 }),
         side: new THREE.MeshStandardMaterial({ color: gold ? 0x6a4a10 : 0x1a2233, metalness: 0.85, roughness: 0.2, emissive: c.clone(), emissiveIntensity: 0.55, envMapIntensity: 1.8 }),
         core: new THREE.MeshBasicMaterial({ color: c.clone().lerp(new THREE.Color(1, 1, 1), 0.25).multiplyScalar(1.6), toneMapped: false, side: THREE.DoubleSide }),
         glow: new THREE.SpriteMaterial({ map: this.glowTex, color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.4 }),
@@ -167,8 +200,10 @@ export class TargetPool {
 
   make() {
     const g = new THREE.Group();
+    const orient = new THREE.Group(); // natočení čela proti přicházející pěsti
+    g.add(orient);
     const spin = new THREE.Group();
-    g.add(spin);
+    orient.add(spin);
     const wedges = [];
     for (let k = 0; k < SEG; k++) {
       const w = new THREE.Mesh(this.wedgeGeos[k].g, [this.mats.L.face, this.mats.L.side]);
@@ -184,12 +219,13 @@ export class TargetPool {
     glow.scale.setScalar(R * 3.4);
     glow.position.z = -0.03;
     glow.renderOrder = -1;
-    g.add(glow);
+    orient.add(glow);
     const wing = new THREE.Mesh(this.wingGeo, this.wingMat);
+    wing.scale.setScalar(0.8);
     g.add(wing);
     g.visible = false;
     this.scene.add(g);
-    return { g, spin, wedges, core, glow, wing, busy: false, side: 'L', type: 'jab', wob: Math.random() * 6 };
+    return { g, orient, spin, wedges, core, glow, wing, busy: false, side: 'L', type: 'jab', wob: Math.random() * 6 };
   }
 
   get(side, type) {
@@ -210,6 +246,15 @@ export class TargetPool {
     o.spin.rotation.set(0, 0, Math.random() * 6.28);
     o.wob = Math.random() * 6;
     o.base = type === 'finale' ? 2.1 : 1;
+    // čelo terče míří proti směru úderu (hook ze strany, zvedák zespodu), napůl k hráči, ať je čitelné
+    const gd = GEO[type] || GEO.jab;
+    const dx = gd.dir[0] * (type === 'hook' && side === 'L' ? -1 : 1);
+    _v.set(-dx, -gd.dir[1], 0);
+    if (_v.lengthSq() > 0) {
+      _v.normalize().multiplyScalar(Math.sin(TILT));
+      _v.z = Math.cos(TILT);
+      o.orient.quaternion.setFromUnitVectors(_w.set(0, 0, 1), _v);
+    } else o.orient.quaternion.identity();
     if (type === 'hook') {
       o.wing.visible = true;
       const sgn = side === 'R' ? 1 : -1;

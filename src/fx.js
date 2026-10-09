@@ -52,6 +52,45 @@ const ringVS = `varying vec2 vUv; void main(){ vUv = uv*2.0-1.0; gl_Position = p
 const ringFS = `uniform vec3 uColor; uniform float uOp; uniform float uW; varying vec2 vUv;
 void main(){ float d = length(vUv); float a = smoothstep(1.0-uW, 1.0-uW*0.4, d) * (1.0 - smoothstep(0.94, 1.0, d)); a += smoothstep(0.75, 1.0, d)*0.12*step(d,1.0); gl_FragColor = vec4(uColor*1.4, a*uOp); }`;
 
+// hvězdicový záblesk (perfektní zásah): jasné jádro + 4 tenké paprsky + 4 kratší šikmé
+const _white = new THREE.Color(1, 1, 1), _gold = new THREE.Color(1, 0.8, 0.3);
+
+function flareTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d');
+  const core = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S * 0.22);
+  core.addColorStop(0, 'rgba(255,255,255,1)');
+  core.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  core.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = core;
+  g.fillRect(0, 0, S, S);
+  g.translate(S / 2, S / 2);
+  const ray = (len, w, a) => {
+    g.save();
+    g.rotate(a);
+    const gr = g.createLinearGradient(-len, 0, len, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,0)');
+    gr.addColorStop(0.5, 'rgba(255,255,255,0.95)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.moveTo(-len, 0);
+    g.quadraticCurveTo(0, -w, len, 0);
+    g.quadraticCurveTo(0, w, -len, 0);
+    g.fill();
+    g.restore();
+  };
+  ray(S * 0.5, 7, 0);
+  ray(S * 0.5, 7, Math.PI / 2);
+  ray(S * 0.3, 4, Math.PI / 4);
+  ray(S * 0.3, 4, -Math.PI / 4);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function textTexture(text, color, size = 96, w = 512, h = 128) {
   const c = document.createElement('canvas');
   c.width = w;
@@ -130,6 +169,18 @@ export class FX {
       scene.add(mesh);
       this.rings.push({ mesh, m, t: 0, life: 0, r0: 0, r1: 0, active: false });
     }
+
+    // --- hvězdicové záblesky ---
+    const ft = flareTexture();
+    this.flares = [];
+    for (let i = 0; i < 6; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ft, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+      sp.visible = false;
+      sp.renderOrder = 6;
+      scene.add(sp);
+      this.flares.push({ sp, t: 0, life: 0.3, s: 0.5, active: false });
+    }
+    this.fi = 0;
 
     // --- úlomky ---
     this.NDEB = 220;
@@ -216,8 +267,14 @@ export class FX {
   }
 
   // výbuch terče: color = THREE.Color, dir = směr úderu, power 0..1, perfect
-  burst(pos, color, dir, power, perfect, big) {
+  burst(pos, color, dir, power, perfect, big, faceQ) {
     const d = this.density;
+    // rázová vlna v rovině čela terče + u perfektního zásahu zlatá vlna a hvězda
+    this.ring(pos, color, 0.08, 0.3 + power * 0.12, 0.28, 0.25, faceQ, 0.75);
+    if (perfect) {
+      this.ring(pos, _gold, 0.1, 0.45 + power * 0.15, 0.38, 0.12, faceQ, 0.6);
+      this.flare(pos, color, 0.42 + power * 0.18);
+    }
     const n = Math.round((34 + power * 30 + (big ? 16 : 0)) * d);
     const gold = perfect;
     for (let i = 0; i < n; i++) {
@@ -282,8 +339,12 @@ export class FX {
     }
   }
 
-  ring(pos, color, r0, r1, life, w) {
+  // rázový kruh; quat = pevná orientace roviny kruhu (jinak natočený ke kameře)
+  ring(pos, color, r0, r1, life, w, quat, op = 0.9) {
     const o = this.rings.find((x) => !x.active) || this.rings[0];
+    o.fixed = !!quat;
+    if (quat) o.mesh.quaternion.copy(quat);
+    o.op = op;
     o.active = true;
     o.t = 0;
     o.life = life;
@@ -354,7 +415,33 @@ export class FX {
     }
   }
 
+  flare(pos, color, size) {
+    const f = this.flares[this.fi];
+    this.fi = (this.fi + 1) % this.flares.length;
+    f.active = true;
+    f.t = 0;
+    f.s = size;
+    f.sp.visible = true;
+    f.sp.position.copy(pos);
+    f.sp.material.color.copy(color).lerp(_white, 0.45);
+    f.sp.material.rotation = Math.random() * 0.6 - 0.3;
+  }
+
   update(dt, camPos) {
+    for (const f of this.flares) {
+      if (!f.active) continue;
+      f.t += dt;
+      const k = f.t / f.life;
+      if (k >= 1) {
+        f.active = false;
+        f.sp.visible = false;
+        continue;
+      }
+      const pop = k < 0.15 ? k / 0.15 : 1;
+      f.sp.scale.setScalar(f.s * (0.5 + 0.7 * pop + k * 0.4));
+      f.sp.material.opacity = (1 - k) * (1 - k);
+      f.sp.material.rotation += dt * 1.5;
+    }
     this.time += dt;
     if (this.flashT > 0) {
       this.flashT = Math.max(0, this.flashT - dt * 7);
@@ -386,8 +473,8 @@ export class FX {
       }
       const e = 1 - Math.pow(1 - k, 3);
       o.mesh.scale.setScalar(o.r0 + (o.r1 - o.r0) * e);
-      o.mesh.lookAt(camPos);
-      o.m.uniforms.uOp.value = (1 - k) * 0.9;
+      if (!o.fixed) o.mesh.lookAt(camPos);
+      o.m.uniforms.uOp.value = (1 - k) * (o.op ?? 0.9);
     }
     // úlomky
     const m = this._m, q = this._q, s = this._s;
