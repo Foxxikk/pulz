@@ -53,7 +53,9 @@ const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _d = new THREE.Vector3
 const STEP = Math.PI / 8;
 
 export class Recorder {
-  constructor(calib, map) {
+  constructor(calib, map, from = 0) {
+    this.from = from; // zapisovat až od tohoto času (nahrávání další části)
+    this.devT = 0;
     this.calib = calib;
     this.map = map;
     this.events = [];
@@ -68,6 +70,7 @@ export class Recorder {
   // vrací zaznamenanou událost (pro efekt) nebo null
   update(t, hands, head, headQ, dt = 1 / 72) {
     let out = null;
+    const live = t >= this.from;
     // směr pohledu (jen vodorovně) a vpravo
     _e.setFromQuaternion(headQ || new THREE.Quaternion(), 'YXZ');
     const yaw = _e.y, roll = _e.z;
@@ -110,7 +113,7 @@ export class Recorder {
         const c = this.calib;
         const b = Math.round(this.map.beatOf(t) * 2) / 2;
         this.last[side] = t;
-        if (!this.events.some((e) => e.kind === 't' && e.hand === side && e.beat === b)) {
+        if (live && !this.events.some((e) => e.kind === 't' && e.hand === side && e.beat === b)) {
           const e = { kind: 't', type, hand: side, beat: b, px: +Math.max(-0.45, Math.min(0.45, h.fist.x - c.cx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
           this.events.push(e);
           out = e;
@@ -128,13 +131,15 @@ export class Recorder {
     }
     const rollDeg = Math.abs(roll) * 57.3;
     const b = Math.round(this.map.beatOf(t) * 2) / 2;
-    if (dev >= 0.15) {
+    // úhyb se počítá až při velké odchylce, která chvíli trvá (ne pohupování při úderech)
+    this.devT = dev >= 0.22 ? this.devT + dt : 0;
+    if (live && dev >= 0.22 && this.devT >= 0.12) {
       // směr úhybu → natočení půlkruhu (překážka je na opačné straně, než kam ses pohnul)
       let ang = Math.atan2(dx, -dy);
       ang = Math.round(ang / STEP) * STEP;
       ang = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, ang));
       // posun do strany bez naklonění hlavy a bez podřepu = úkrok → zeď
-      const step = Math.abs(dx) > 0.22 && dy > -0.1 && rollDeg < 9;
+      const step = Math.abs(dx) > 0.3 && dy > -0.1 && rollDeg < 8;
       const d = this.dodge;
       const changed = !d || (step ? d.kind !== 'wall' : Math.abs(ang - d.ang) >= STEP - 1e-6);
       if (changed && (!d || b - d.beat >= 0.5)) {
@@ -147,20 +152,27 @@ export class Recorder {
         }
         this.dodge = { kind: step ? 'wall' : 'arc', ang, beat: b };
       }
-    } else if (dev < 0.09) this.dodge = null; // návrat do neutrálu → další úhyb je nová překážka
+    } else if (dev < 0.1) this.dodge = null; // návrat do neutrálu → další úhyb je nová překážka
     return out;
   }
 }
 
+// sloučit nově nahranou část do uložené choreografie (v rozsahu [b0, b1] doby nahradí)
+export function mergeChoreo(old, add, b0, b1) {
+  const keep = (old || []).filter((e) => e.beat < b0 - 0.01 || e.beat > b1 + 0.01);
+  return keep.concat(add).sort((a, b) => a.beat - b.beat);
+}
+
 // uložená choreografie → herní události
-export function chartFromChoreo(ch, track, spb, duration) {
+export function chartFromChoreo(ch, track, spb, duration, range) {
   const map = beatMap(track, spb);
   const ev = ch.events
     .map((e) => ({ ...e, t: map.timeOf(e.beat), sx: 0, sy: 0, section: 'groove' }))
-    .filter((e) => e.t > 1 && e.t < duration - 0.3)
+    .filter((e) => e.t > 1 && e.t < duration - 0.3 && (!range || (e.t >= range.t0 - 0.05 && e.t <= range.t1 + 0.05)))
     .sort((a, b) => a.t - b.t);
   ev.forEach((e, i) => (e.i = i));
   const last = ev.length ? ev[ev.length - 1].beat : 0;
+  if (range) return { events: ev, duration: Math.min(duration, range.t1 + 2.5), targets: ev.filter((e) => e.kind === 't').length, barriers: ev.filter((e) => e.kind === 'b').length, custom: true };
   addFinale(ev, map.timeOf, Math.ceil(last) + 4, duration);
   return { events: ev, duration, targets: ev.filter((e) => e.kind === 't').length, barriers: ev.filter((e) => e.kind === 'b').length, custom: true };
 }

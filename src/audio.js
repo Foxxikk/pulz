@@ -443,6 +443,20 @@ export class AudioSys {
     s.gain.gain.setValueAtTime(1, this.ctx.currentTime);
   }
 
+  // přeskočit na místo ve skladbě (zkoušení / nahrávání části)
+  seek(offset, lead = 0.25) {
+    const s = this.song;
+    if (!s || offset <= 0) return;
+    s.sources.forEach((x) => { try { x.stop(); } catch (e) {} });
+    s.sources = [];
+    s.paused = true;
+    s.pausedAt = offset;
+    s.est = offset;
+    s.gain.gain.cancelScheduledValues(this.ctx.currentTime);
+    s.gain.gain.setValueAtTime(s.kind === 'buffer' ? 0.95 : 1, this.ctx.currentTime);
+    this.resumeSong(lead);
+  }
+
   resumeSong(lead = 0.15) {
     const s = this.song;
     if (!s || !s.paused) return;

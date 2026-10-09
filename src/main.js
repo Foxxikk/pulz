@@ -12,7 +12,7 @@ import { Bot } from './bot.js';
 import { AudioSys } from './audio.js';
 import { buildChart, buildChartFromAnalysis } from './chart.js';
 import { Coach, trainingTip } from './coach.js';
-import { Recorder, beatMap, loadChoreo, saveChoreo, chartFromChoreo } from './choreo.js';
+import { Recorder, beatMap, loadChoreo, saveChoreo, chartFromChoreo, mergeChoreo } from './choreo.js';
 import { savedPin, rememberPin, listSongs, uploadSong, deleteSong, fetchSong, cacheSong } from './library.js';
 import { store, clamp, track as va } from './util.js';
 
@@ -963,13 +963,17 @@ class App {
     const track = this.currentTrack;
     const spbT = track.custom ? 60 / track.bpm : audio.spb(track);
     const durT = track.custom ? track.duration : this.trackLen(track);
-    const recMode = this.run && this.run.mode === 'record';
+    const run = this.run;
+    const recMode = run && run.mode === 'record';
+    const tryMode = run && run.mode === 'try';
     const ch = !recMode && this.settings.useChoreo !== false ? loadChoreo(track) : null;
     let chart;
     if (recMode) chart = { events: [], duration: durT, targets: 0, barriers: 0 };
+    else if (tryMode && ch) chart = chartFromChoreo(ch, track, spbT, durT, run.range);
     else if (ch && ch.events.length >= 8) chart = chartFromChoreo(ch, track, spbT, durT);
     else chart = track.custom ? buildChartFromAnalysis(track.an, track.phrases, this.settings.diff, track.seed) : buildChart(track, this.settings.diff, spbT);
-    this.recorder = recMode ? new Recorder(this.calibData, beatMap(track, spbT)) : null;
+    this.recorder = recMode ? new Recorder(this.calibData, beatMap(track, spbT), run.from || 0) : null;
+    this.recSpb = spbT;
     this.hideAll();
     this.game.start(chart, track, this.settings.diff, this.calibData);
     this.bot.reset();
@@ -980,6 +984,8 @@ class App {
       this.spb = audio.spb(track);
       audio.startSong(track, audio.ctx.currentTime + 0.25);
     }
+    // zkouška / nahrávání části: přeskočit na místo ve skladbě
+    if (run && run.offset > 0) audio.seek(run.offset, 0.25);
     audio.duckAmbient(true);
     this.coach.reset();
     this.screen = 'play';
@@ -1190,6 +1196,32 @@ class App {
     this.ghosts = this.ghosts.filter((x) => x.t < 0.8);
   }
 
+  // vyzkoušet právě nahranou část (jen ten úsek skladby)
+  startTry() {
+    const r = this.lastResult;
+    const range = (r && (r.recRange || r.tryRange)) || null;
+    const track = r && r.recTrack;
+    if (!range || !track) return;
+    this.run = { mode: 'try', list: [track], idx: 0, tot: { score: 0, kcal: 0, time: 0, hits: 0, misses: 0 }, range, offset: Math.max(0, range.t0 - 3) };
+    this.runTrack = track;
+    if (this.audio) this.audio.stopLounge(0.3);
+    this.screen = 'menu';
+    this.startCalib();
+  }
+  // nahrát (další) část od času `from`
+  startRecPart(from) {
+    const r = this.lastResult;
+    const track = r && r.recTrack;
+    if (!track) return;
+    from = Math.max(0, from || 0);
+    this.run = { mode: 'record', list: [track], idx: 0, tot: { score: 0, kcal: 0, time: 0, hits: 0, misses: 0 }, from, offset: Math.max(0, from - 2.5) };
+    this.runTrack = track;
+    if (this.audio) this.audio.stopLounge(0.3);
+    this.screen = 'menu';
+    this.coach.say(from > 1 ? 'Nahráváme další část.' : 'Nahráváme.', 1);
+    this.startCalib();
+  }
+
   choreoFor(track) {
     const c = loadChoreo(track);
     return c && c.events.length >= 8 ? c : null;
@@ -1273,17 +1305,29 @@ class App {
       }
     }
     if (run && run.mode === 'record' && this.recorder) {
+      const map = beatMap(g.track, this.recSpb);
       const evs = this.recorder.events;
       r.recorded = evs.filter((e) => e.kind === 't').length;
       r.recordedBars = evs.filter((e) => e.kind === 'b').length;
-      if (r.recorded >= 8) {
-        saveChoreo(g.track, { events: evs, created: Date.now(), bpm: g.track.bpm });
+      const t0 = run.from || 0, t1 = g.t;
+      if (evs.length) {
+        const old = loadChoreo(g.track);
+        const merged = mergeChoreo(old && old.events, evs, map.beatOf(Math.max(0, t0 - 0.1)), map.beatOf(t1));
+        saveChoreo(g.track, { events: merged, created: Date.now(), bpm: g.track.bpm });
+        const ts = evs.map((e) => map.timeOf(e.beat));
+        r.recRange = { t0: Math.min(...ts), t1: Math.max(...ts) };
+        r.recTotal = merged.filter((e) => e.kind === 't').length;
         this.settings.useChoreo = true;
-        this.settings.mode = 'train';
         this.saveSettings();
       }
+      r.recEnd = t1;
+      r.recFrom = t0;
+      r.recTrack = g.track;
       this.recorder = null;
       this.bigText = '';
+    } else if (run && run.mode === 'try') {
+      r.tryRange = run.range;
+      r.recTrack = g.track;
     } else this.addHistory && this.addHistory(r, g, done);
     this.uploadRec(g, r, done);
     if (this.audio) {
@@ -1380,6 +1424,12 @@ class App {
     else if (id === 'stats') this.showStats();
     else if (id === 'statsback') this.showMenu();
     else if (id === 'endnext') this.enduranceNext();
+    else if (id === 'rectry') this.startTry();
+    else if (id === 'recmore') this.startRecPart(this.lastResult && (this.lastResult.recEnd || (this.lastResult.tryRange && this.lastResult.tryRange.t1 + 0.3)));
+    else if (id === 'recredo') {
+      const lr = this.lastResult || {};
+      this.startRecPart(lr.tryRange ? lr.tryRange.t0 - 0.2 : lr.recFrom || 0);
+    }
     else if (id === 'warmnext') this.warmStep(1);
     else if (id === 'warmend') this.warmDone();
     else if (id === 'stretchgo') this.startStretch();
@@ -1650,7 +1700,7 @@ class App {
       if (this.game.practiceMode) this.game.updatePractice(now, dt, this.hands, this.head);
       this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode + '|' + !!this.game.autocal + '|' + this.game.practiceIdx + '|' + (this.calMsg || ''));
     }
-    if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
+    if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score + (this.run ? this.run.mode : ''));
     if (this.screen === 'stats') this.panels.stats.refresh('s');
     if (this.screen === 'warmup') this.updateWarm(dt);
     this.updateGhosts(dt);

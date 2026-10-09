@@ -17,6 +17,12 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10.2 – nahrávání po částech
+- **Nahrát jen část**: během nahrávání otevři pauzu (podržení ukazováčku na zápěstí) → „Uložit nahranou část“. Uloží se, co jsi stihl.
+- **Zkusit část**: ve výsledcích „Zkusit část“ – hraje jen nahraný úsek (od 3 s před ním do 2,5 s po něm), ne celá skladba.
+- **Nahrát znovu / Nahrát další**: přepíše jen tuto část, nebo naváže od místa, kde jsi skončil (2,5 s předehra). Části se slučují do jedné choreografie skladby.
+- **Méně citlivé překážky při nahrávání**: úhyb se zapíše až při odchylce hlavy ≥ 22 cm, která trvá aspoň 0,12 s (pohupování při úderech nebo krátké cuknutí se nezapíše); zeď až při úkroku ≥ 30 cm bez naklonění hlavy.
+
 ## Novinky v10.1 – editor choreografie
 - **Jen boxerské údery**: úder se zapíše, jen když pěst vyrazí z gardy (před obličejem) aspoň o 20 cm se švihem ≥ 2,2 m/s. Druh se určí podle natočení hráče (direkt dopředu od těla, hook ze strany dovnitř, zvedák zespodu nahoru). Mávnutí, spuštění rukou, stažení ruky k tělu nebo třesení se ignorují; při ztrátě sledování ruky se nic nezapisuje.
 - **Úhyb = překážka**: hra sleduje odchylku hlavy od neutrální polohy (ta se průběžně dolaďuje). Podřep nebo úklon se zapíše jako půlkruh natočený přesně podle směru úhybu (po 22,5°), oblouk hlavou vytvoří spirálu, úkrok do strany bez naklonění hlavy vytvoří zeď. Zaznamenaná překážka se hned ukáže před tebou a zasviští.

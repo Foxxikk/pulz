@@ -48,9 +48,11 @@ console.log(await page.evaluate(async () => {
   });
   const roll = (q, r) => q.setFromEuler(new THREE.Euler(0, 0, r, 'YXZ'));
   run('podrep', (t, H, head) => { head.y = 1.62 - (t > 1 && t < 1.8 ? 0.25 : 0); });
-  run('uklon', (t, H, head, q) => { const on = t > 1 && t < 1.8; head.x = on ? -0.22 : 0; head.y = on ? 1.57 : 1.62; roll(q, on ? 0.35 : 0); });
-  run('ukrok', (t, H, head, q) => { head.x = t > 1 && t < 2 ? 0.32 : 0; roll(q, 0); });
-  run('spirala', (t, H, head, q) => { if (t > 1 && t < 4) { const a = -Math.PI / 2 + ((t - 1) / 3) * Math.PI; head.x = 0.22 * Math.sin(a); head.y = 1.62 - 0.22 * Math.cos(a); roll(q, -a * 0.3); } else { head.set(0, 1.62, 0); roll(q, 0); } });
+  run('uklon', (t, H, head, q) => { const on = t > 1 && t < 1.8; head.x = on ? -0.26 : 0; head.y = on ? 1.57 : 1.62; roll(q, on ? 0.35 : 0); });
+  run('ukrok', (t, H, head, q) => { head.x = t > 1 && t < 2 ? 0.38 : 0; roll(q, 0); });
+  run('pohupovani (nic)', (t, H, head, q) => { head.x = Math.sin(t * 6) * 0.12; head.y = 1.62 - Math.abs(Math.sin(t * 5)) * 0.12; roll(q, Math.sin(t * 6) * 0.1); });
+  run('kratky zaklon (nic)', (t, H, head) => { head.y = 1.62 - (t > 1 && t < 1.08 ? 0.3 : 0); });
+  run('spirala', (t, H, head, q) => { if (t > 1 && t < 4) { const a = -Math.PI / 2 + ((t - 1) / 3) * Math.PI; head.x = 0.27 * Math.sin(a); head.y = 1.62 - 0.27 * Math.cos(a); roll(q, -a * 0.3); } else { head.set(0, 1.62, 0); roll(q, 0); } });
   return JSON.stringify(out, null, 1);
 }));
 console.log('errors', errors);

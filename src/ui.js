@@ -580,14 +580,15 @@ export function makePanels(app) {
     p.btn('resume', 162, 210, 700, 120, 'Pokračovat', { primary: true, size: 50, weight: 900 });
     p.btn('recal', 162, 350, 340, 110, 'Znovu kalibrovat', { size: 32 });
     p.btn('restart', 522, 350, 340, 110, 'Začít znovu', { size: 32 });
-    p.btn('quit', 162, 480, 700, 100, 'Ukončit trénink', { size: 34 });
+    const rm = app.run && app.run.mode;
+    p.btn('quit', 162, 480, 700, 100, rm === 'record' ? 'Uložit nahranou část' : rm === 'try' ? 'Ukončit zkoušku' : 'Ukončit trénink', { size: 34, primary: rm === 'record' });
   }, { interactive: true });
 
   P.results = new Panel(1280, 900, 0.84, (g, p) => {
     glass(g, 1280, 900);
     const r = app.lastResult;
     if (!r) return;
-    const title = r.mode === 'record' ? (r.recorded >= 8 ? `Choreografie uložena: ${r.recorded} úderů` : `Málo úderů (${r.recorded || 0}) – neuloženo`) : r.mode === 'perfect' ? (r.failed ? `Chyba v ${Math.round((r.progress || 0) * 100)} % skladby` : 'Bez jediné chyby!') : r.endurance ? `Skladba ${r.endurance.idx} z ${r.endurance.n}` : r.finished ? 'Trénink dokončen!' : 'Trénink ukončen';
+    const title = r.mode === 'record' ? (r.recRange ? `Uloženo: ${r.recorded} úderů, ${r.recordedBars} překážek` : 'Nic se nenahrálo') : r.mode === 'try' ? 'Zkouška části' : r.mode === 'perfect' ? (r.failed ? `Chyba v ${Math.round((r.progress || 0) * 100)} % skladby` : 'Bez jediné chyby!') : r.endurance ? `Skladba ${r.endurance.idx} z ${r.endurance.n}` : r.finished ? 'Trénink dokončen!' : 'Trénink ukončen';
     text(g, title, 60, 112, 60, { weight: 900 });
     text(g, `${r.trackName} · ${r.diffName}${r.mode === 'perfect' ? ' · Bez chyby' : r.endurance ? ' · Vytrvalost' : ''}`, 60, 164, 32, { color: 'rgba(255,255,255,0.65)', weight: 500 });
     // známka
@@ -647,7 +648,10 @@ export function makePanels(app) {
     const rs = Object.entries(r.reasons || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
     if (rs.length) text(g, 'Minuté: ' + rs.map(([k, n]) => `${k} ${n}×`).join(' · '), 60, 634, 23, { weight: 600, color: '#ffb08a' });
     // tip trenéra
-    if (r.mode === 'record') text(g, r.recorded >= 8 ? `Údery jsou zarovnané na doby${r.recordedBars ? `, k tomu ${r.recordedBars} úhybů` : ''}. V menu se teď hraje tvoje choreografie (lze vypnout).` : 'Nahraj aspoň 8 úderů.', 60, 672, 24, { weight: 600, color: '#9fd0ff' });
+    if (r.mode === 'record' || r.mode === 'try') {
+      const rg = r.recRange || r.tryRange;
+      text(g, rg ? `Část ${fmtTime(rg.t0)}–${fmtTime(rg.t1)}${r.recTotal ? ` · v choreografii celkem ${r.recTotal} úderů` : ''}. Vyzkoušej ji, nahraj znovu nebo pokračuj další částí.` : 'Zkus to znovu – boxuj do rytmu, uhýbej podřepem a úklonem.', 60, 672, 24, { weight: 600, color: '#9fd0ff' });
+    }
     else if (r.tip) text(g, 'Trenér: ' + r.tip, 60, 672, 24, { weight: 600, color: '#9fd0ff' });
     const en = r.endurance;
     if (en) {
@@ -655,7 +659,13 @@ export function makePanels(app) {
       text(g, `Celkem: ${fmtNum(tt.score)} bodů · ${Math.round(tt.kcal)} kcal · ${fmtTime(tt.time)} · zásahy ${tt.hits}/${tt.hits + tt.misses}`, 60, 714, 26, { weight: 700, color: COL.goldCss });
     }
     const by = 750;
-    if (en && en.next) {
+    if (r.mode === 'record' || r.mode === 'try') {
+      const has = !!(r.recRange || r.tryRange);
+      p.btn('rectry', 60, by, 280, 120, 'Zkusit část', { primary: has, size: 34, weight: 900, disabled: !has });
+      p.btn('recredo', 356, by, 280, 120, 'Nahrát znovu', { size: 32, weight: 800, sub: 'tuto část' });
+      p.btn('recmore', 652, by, 280, 120, 'Nahrát další', { size: 32, weight: 800, sub: 'pokračovat dál' });
+      p.btn('menu', 948, by, 272, 120, 'Menu', { size: 36, weight: 800 });
+    } else if (en && en.next) {
       const sec = app.endT != null ? Math.max(0, Math.ceil(app.endT)) : '';
       p.btn('endnext', 60, by, 700, 120, `Další: ${en.next.length > 22 ? en.next.slice(0, 21) + '…' : en.next}`, { primary: true, size: 40, weight: 900, sub: sec !== '' ? `začne za ${sec} s` : '' });
       p.btn('endstop', 780, by, 440, 120, 'Ukončit sérii', { size: 36, weight: 800 });
