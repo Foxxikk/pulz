@@ -17,6 +17,12 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10.3
+- **Přílety ze stran**: terče nelétají jen zepředu – střídají se „dráhy“ zepředu a mírně ze stran (lehká ±15°, střední ±15–25°, těžká až ±30°), dráha se mění po frázích a nikdy neskočí z jedné strany na druhou. Natočí se místo zásahu, dráha letu, terč i očekávaný směr úderu.
+- **Nahrávání úderů do stran**: přímý úder se pozná podle toho, že se pěst vzdálí od hlavy, a zapíše se i s úhlem, kam mířil (±35°, po 5°) – při přehrání terč přiletí z toho směru. Křížový direkt do strany se už nesplete s hookem.
+- **Automatické dorovnání středu**: hráč se během tréninku posouvá; střed hry ho pomalu následuje (ne při úhybech, max. 40 cm), takže terče zůstávají v dosahu.
+- **Lepší analýza úderů** (/analyza.html): průběh každého tréninku (každý terč jako bod – síla úderu, zásah/minutí s důvodem a polohou pěsti; úspěšnost v čase; jak ses posouval), tabulka „Kam pěsti míjejí terče“ (vlevo/vpravo, výš/níž, blíž/dál vůči zásahům) s doporučeními. Záznam se odešle už od 5 terčů.
+
 ## Novinky v10.2 – nahrávání po částech
 - **Nahrát jen část**: během nahrávání otevři pauzu (podržení ukazováčku na zápěstí) → „Uložit nahranou část“. Uloží se, co jsi stihl.
 - **Zkusit část**: ve výsledcích „Zkusit část“ – hraje jen nahraný úsek (od 3 s před ním do 2,5 s po něm), ne celá skladba.

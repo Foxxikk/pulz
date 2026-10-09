@@ -1,10 +1,11 @@
 // Herní logika tréninku: terče letí v rytmu, posuzování zásahů, skóre, combo, bariéry, kalorie
 import * as THREE from 'three';
 import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES, BAR, barOf } from './config.js';
-import { clamp } from './util.js';
+import { clamp, rotY } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
 const _qf = new THREE.Quaternion();
+const _e2 = new THREE.Vector3();
 const _qWater = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const C_L = new THREE.Color(COL.L), C_R = new THREE.Color(COL.R);
 
@@ -83,11 +84,15 @@ export class Game {
       set: { sens: { ...S.sens }, zone: S.zone, barriers: S.barriers || 'all', drop: S.barrierDrop, off: S.audioOffset },
       calib: { h: +calib.headH.toFixed(2), reach: +(calib.reach || 0).toFixed(2) },
       trk: { L: { n: 0, ok: 0, ex: 0 }, R: { n: 0, ok: 0, ex: 0 } },
+      drift: [], // posun hlavy vůči kalibraci (cm) každé 2 s + posun středu hry
       fps: [],
       items: [],
       bars: [],
     };
     this.recFpsT = 0;
+    this.recDriftT = 0;
+    this.c0 = { cx: calib.cx, cz: calib.cz };
+    this.headAvg = null;
   }
 
   // zapsat výsledek terče do záznamu
@@ -106,6 +111,8 @@ export class Game {
       wk: it.weakShown ? 1 : 0,
       d: it.dirShown ? 1 : 0,
       tr: it.trkN ? +(it.trkOk / it.trkN).toFixed(2) : null, // podíl snímků se sledovanou rukou kolem úderu
+      y: it.e.yaw ? Math.round(it.e.yaw * 57.3) : 0, // úhel příletu (°)
+      o: it.nearOff ? it.nearOff.map((v) => Math.round(v * 100)) : null, // pěst vůči středu terče při největším přiblížení (cm, soustava terče: x vpravo, y nahoru, z k hráči)
       ex: it.trkN ? +(it.trkEx / it.trkN).toFixed(2) : null,
       ...extra,
     };
@@ -169,13 +176,24 @@ export class Game {
       const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
       return out.set(c.cx - nx * dist, c.headH - ny * dist, c.cz);
     }
-    // nahraná choreografie: přesně tam, kde jsi udeřil
-    if (e.px != null) return out.set(c.cx + e.px, c.headH + e.py, c.cz - c.hitDist);
-    const g = GEO[e.type];
-    const sgn = e.hand === 'L' ? -1 : 1;
-    let dy = g.dy;
-    if (e.low) dy = -0.36;
-    return out.set(c.cx + sgn * g.x + e.sx, c.headH + dy + e.sy, c.cz - c.hitDist);
+    // místní souřadnice (vůči směru příletu), pak otočit o úhel příletu kolem hráče
+    if (e.px != null) out.set(e.px, e.py, -c.hitDist); // nahraná choreografie: přesně tam, kde jsi udeřil
+    else {
+      const g = GEO[e.type];
+      const sgn = e.hand === 'L' ? -1 : 1;
+      let dy = g.dy;
+      if (e.low) dy = -0.36;
+      out.set(sgn * g.x + e.sx, dy + e.sy, -c.hitDist);
+    }
+    rotY(out, e.yaw || 0);
+    return out.set(c.cx + out.x, c.headH + out.y, c.cz + out.z);
+  }
+
+  // očekávaný směr úderu ve světě (natočený podle příletu)
+  expDir(it, out) {
+    const g = GEO[it.type] || GEO.jab;
+    out.set(g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1), g.dir[1], g.dir[2]);
+    return rotY(out, it.e.yaw || 0);
   }
 
   spawn(e) {
@@ -214,6 +232,7 @@ export class Game {
         it.vis = this.app.targets.getBomb();
         it.far.set((rr - 0.5) * 3, 0.6 + rr, 0);
       } else it.vis = this.app.targets.get(e.hand, e.type);
+      it.vis.yaw = e.yaw || 0;
       if (e.small) it.vis.base = 0.72;
       // dvojitý terč: světelné spojení s partnerem
       if (e.pair != null) {
@@ -257,10 +276,12 @@ export class Game {
     }
     const uu = Math.max(0, u);
     const conv = uu * uu;
-    out.set(it.hit.x + it.far.x * conv, it.hit.y + it.far.y * conv, it.hit.z - off);
+    // místní posun (vůči směru příletu) → otočit → přičíst k místu zásahu
+    out.set(it.far.x * conv, it.far.y * conv, -off);
     // zakřivený let: oblouk ze strany, na začátku i v cíli bez odchylky
     if (it.e.curve && uu > 0) out.x += it.e.curve * 1.1 * Math.sin(Math.PI * Math.min(1, uu * 1.15));
-    return out;
+    if (it.kind === 't') rotY(out, it.e.yaw || 0);
+    return out.add(it.hit);
   }
 
   releaseItem(it) {
@@ -309,6 +330,27 @@ export class Game {
         if (hh.fresh) rs.ok++;
         else if (hh.extrap) rs.ex++;
       }
+      // automatické dorovnání středu: hráč se během hry posouvá → střed pomalu následuje (ne při úhybech)
+      if (head && !this.practiceMode) {
+        if (!this.headAvg) this.headAvg = { x: head.x, z: head.z };
+        const dx = head.x - this.calib.cx, dz = head.z - this.calib.cz;
+        if (Math.hypot(dx, dz) < 0.15 && head.y > this.calib.headH - 0.12) {
+          const k = Math.min(1, dt / 6);
+          this.calib.cx += dx * k;
+          this.calib.cz += dz * k;
+          // nejvýš 40 cm od původní kalibrace
+          const ox = this.calib.cx - this.c0.cx, oz = this.calib.cz - this.c0.cz, ol = Math.hypot(ox, oz);
+          if (ol > 0.4) {
+            this.calib.cx = this.c0.cx + (ox / ol) * 0.4;
+            this.calib.cz = this.c0.cz + (oz / ol) * 0.4;
+          }
+        }
+      }
+      this.recDriftT += dt;
+      if (this.recDriftT > 2 && head) {
+        this.recDriftT = 0;
+        this.rec.drift.push({ t: Math.round(t), hx: Math.round((head.x - this.c0.cx) * 100), hy: Math.round((head.y - this.calib.headH) * 100), hz: Math.round((head.z - this.c0.cz) * 100), cx: Math.round((this.calib.cx - this.c0.cx) * 100), cz: Math.round((this.calib.cz - this.c0.cz) * 100) });
+      }
       this.recFpsT += dt;
       if (this.recFpsT > 5) {
         this.recFpsT = 0;
@@ -337,6 +379,10 @@ export class Game {
               // úsečka pěsti v soustavě terče
               _a.subVectors(h.prevFist, it.prevPos);
               _b.subVectors(h.fist, it.pos);
+              if (it.e.yaw) {
+                rotY(_a, -it.e.yaw);
+                rotY(_b, -it.e.yaw);
+              }
               // zóna je elipsoid: ve směru úderu užší (rozbije se až při viditelném dotyku), do stran velkorysá
               if (it.type === 'jab' || it.type === 'finale') { _a.z *= sq; _b.z *= sq; }
               else if (it.type === 'hook') { _a.x *= sqSide; _b.x *= sqSide; }
@@ -350,10 +396,12 @@ export class Game {
                 it.near = dist - RAD;
                 it.nearSpd = Math.max(it.nearSpd, h.speed);
                 it.nearPk = Math.max(it.nearPk || 0, h.pk || 0);
-                const gd = GEO[it.type];
+                _e2.subVectors(h.fist, it.pos);
+                rotY(_e2, -(it.e.yaw || 0));
+                it.nearOff = [_e2.x, _e2.y, _e2.z];
                 const pv = h.speed > 0.35 || !h.pk ? h.vel : h.pkVel;
                 const l = pv.length();
-                if (l > 0.3) it.nearCos = (pv.x * gd.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + pv.y * gd.dir[1] + pv.z * gd.dir[2]) / l;
+                if (l > 0.3) it.nearCos = pv.dot(this.expDir(it, _e2)) / l;
               }
               if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 0.7 : it.type === 'boss' ? RAD + GEO.targetR * 1.2 : it.type === 'bomb' ? RAD - 0.03 : RAD)) continue;
               this.contact(it, h, t);
@@ -423,9 +471,8 @@ export class Game {
       // kalibrace: úder sledovat ještě 0,25 s po prvním dotyku (max. švih, nejbližší průchod středem)
       if (h.side !== it.side) return;
       if (it.acT == null && spd < 0.8) return; // ruka jen leží v zóně
-      const g0 = GEO[it.type];
       _d.copy(vv).normalize();
-      const cos = _d.x * g0.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g0.dir[1] + _d.z * g0.dir[2];
+      const cos = _d.dot(this.expDir(it, _e2));
       const dc = _v.subVectors(h.fist, it.pos).length();
       if (it.acT == null) {
         it.acT = t;
@@ -464,9 +511,8 @@ export class Game {
       return;
     }
     // směr úderu
-    const g = GEO[it.type];
     _d.copy(vv).normalize();
-    const cos = _d.x * g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g.dir[1] + _d.z * g.dir[2];
+    const cos = _d.dot(this.expDir(it, _e2));
     const dirOk = it.type === 'finale' || cos >= sens.cos;
     if (!dirOk && sens.lv === 1) {
       if (!it.dirShown) {

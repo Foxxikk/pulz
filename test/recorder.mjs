@@ -24,7 +24,7 @@ console.log(await page.evaluate(async () => {
       for (const s of ['L', 'R']) { H[s].vel.subVectors(H[s].fist, H[s].prev).divideScalar(dt); H[s].speed = H[s].vel.length(); }
       rec.update(t, H, head, q, dt);
     }
-    out[name] = rec.events.map((e) => e.kind === 't' ? e.hand + ':' + e.type : e.type + (e.ang != null ? '@' + Math.round(e.ang * 57.3) : '')).join(' ');
+    out[name] = rec.events.map((e) => e.kind === 't' ? e.hand + ':' + e.type + (e.yaw ? '@' + Math.round(e.yaw * 57.3) : '') : e.type + (e.ang != null ? '@' + Math.round(e.ang * 57.3) : '')).join(' ');
   };
   const guard = (s) => new THREE.Vector3(s === 'L' ? -0.16 : 0.16, 1.38, -0.22);
   // úder: 0,15 s ven po dráze, 0,25 s zpět; cíl relativně ke gardě
@@ -39,6 +39,9 @@ console.log(await page.evaluate(async () => {
     punch(H, 'L', t, 0.5, new THREE.Vector3(0.36, 0.08, -0.18)); punch(H, 'R', t, 1.3, new THREE.Vector3(-0.36, 0.08, -0.18));
     punch(H, 'L', t, 2.1, new THREE.Vector3(0.05, 0.36, -0.15)); punch(H, 'R', t, 2.9, new THREE.Vector3(-0.05, 0.36, -0.15));
   });
+  // direkty do stran: levou doleva 30°, pravou křížem doleva 30°, pravou doprava 25°
+  const dirAt = (deg, len) => new THREE.Vector3(-Math.sin(deg / 57.3) * len, 0.04, -Math.cos(deg / 57.3) * len);
+  run('direkty do stran', (t, H) => { punch(H, 'L', t, 0.5, dirAt(30, 0.45)); punch(H, 'R', t, 1.3, dirAt(30, 0.45).add(new THREE.Vector3(-0.1, 0, 0))); punch(H, 'R', t, 2.1, dirAt(-25, 0.45)); punch(H, 'L', t, 2.9, dirAt(0, 0.42)); });
   run('neboxerske', (t, H) => {
     // mávnutí do strany ven, spuštění rukou dolů, stažení k tělu, rychlé třesení na místě
     punch(H, 'L', t, 0.5, new THREE.Vector3(-0.4, 0, 0.05));

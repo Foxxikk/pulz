@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { GEO, BAR, barOf } from './config.js';
 import { fistJoints } from './hands.js';
-import { rng, clamp } from './util.js';
+import { rng, clamp, rotY } from './util.js';
 
 const _p = new THREE.Vector3(), _f = new THREE.Vector3(), _u = new THREE.Vector3(), _c = new THREE.Vector3(), _q = new THREE.Vector3();
 
@@ -71,12 +71,13 @@ export class Bot {
       const m = this.motion[side];
       if (m && t >= m.start && t <= m.end) {
         const g = GEO[m.type];
-        const dir = _c.set(g.dir[0] * (m.type === 'hook' && side === 'L' ? -1 : 1), g.dir[1], g.dir[2]);
-        // cíl = poloha terče v okamžiku kontaktu + průraz
+        const yaw = (m.it.e && m.it.e.yaw) || 0;
+        const dir = rotY(_c.set(g.dir[0] * (m.type === 'hook' && side === 'L' ? -1 : 1), g.dir[1], g.dir[2]), yaw);
+        // cíl = poloha terče v okamžiku kontaktu + průraz (posun po ose příletu)
         const target = _q.copy(m.hit);
         const u = (m.it.tHit - m.contact) / app.game.flight;
-        if (u > 0) target.z -= GEO.spawnDist * GEO.finalFrac * u; // předčasný úder trefí terč dál
-        else target.z += GEO.spawnDist * GEO.finalFrac * -u;
+        const ax = rotY(new THREE.Vector3(0, 0, -1), yaw);
+        target.addScaledVector(ax, GEO.spawnDist * GEO.finalFrac * u); // předčasný úder trefí terč dál
         const over = target.clone().addScaledVector(dir, 0.1);
         const guard = pos.clone();
         let p;
@@ -85,8 +86,8 @@ export class Bot {
           const e = k * k; // zrychlení až do kontaktu
           // výchozí bod: hook zboku, zvedák zespodu
           let from = guard;
-          if (m.type === 'hook') from = target.clone().addScaledVector(dir, -0.32).add(new THREE.Vector3(0, -0.04, 0.12));
-          if (m.type === 'upper') from = target.clone().addScaledVector(dir, -0.3).add(new THREE.Vector3(0, 0, 0.1));
+          if (m.type === 'hook') from = target.clone().addScaledVector(dir, -0.32).add(rotY(new THREE.Vector3(0, -0.04, 0.12), yaw));
+          if (m.type === 'upper') from = target.clone().addScaledVector(dir, -0.3).add(rotY(new THREE.Vector3(0, 0, 0.1), yaw));
           const k0 = clamp(k * 3, 0, 1);
           const start = guard.clone().lerp(from, k0);
           p = start.lerp(over, e);

@@ -233,8 +233,29 @@ function addSpecials(events, diffId, R, timeOf) {
     }
   });
   ev = ev.concat(add).sort((a, b) => a.t - b.t);
+  assignYaw(ev, diffId, R);
   ev.forEach((e, i) => (e.i = i));
   return ev;
+}
+
+// úhel příletu terčů: střídají se „dráhy“ zepředu a mírně ze stran (15–30°), mění se po frázích
+const D2R = Math.PI / 180;
+function assignYaw(ev, diffId, R) {
+  const maxA = diffId === 'easy' ? 15 : diffId === 'mid' ? 25 : 30;
+  const span = diffId === 'easy' ? 16 : 8; // po kolika dobách se mění dráha
+  let lane = 0, laneB = -99;
+  for (const e of ev) {
+    if (e.kind !== 't' || e.type === 'boss' || e.type === 'finale') continue;
+    const blk = Math.floor(e.beat / span);
+    if (blk !== laneB) {
+      laneB = blk;
+      const r = R();
+      let want = r < 0.38 ? 0 : (R() < 0.5 ? -1 : 1) * (r < 0.72 ? 15 : maxA);
+      if (Math.abs(want - lane) > 30) want = 0; // ne skokem z jedné strany na druhou – přes střed
+      lane = Math.max(-maxA, Math.min(maxA, want));
+    }
+    e.yaw = lane * D2R;
+  }
 }
 
 // společné dočištění: bariéry, volno kolem nich, stejná ruka min. 0,35 s, časy

@@ -69,6 +69,10 @@
   .axis { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; margin-top: 4px; }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
   .rec { padding-left: 18px; margin: 0; }
+  svg.tl { width: 100%; height: auto; display: block; }
+  svg.tl text { fill: var(--text-muted); font-size: 11px; }
+  .tl-legend { display: flex; gap: 16px; color: var(--text-secondary); font-size: 13px; margin: 4px 0 10px; flex-wrap: wrap; }
+  .tl-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
   .rec li { margin-bottom: 6px; }
   .muted { color: var(--text-muted); }
   #tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--line); color: var(--text-primary); padding: 6px 9px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; z-index: 9; }
@@ -110,6 +114,12 @@
       <div class="card"><h2>Síla úderů</h2><div id="speed"></div></div>
     </div>
     <div class="card"><h2>Jednotlivé tréninky</h2><div id="sessions"></div></div>
+    <div class="card">
+      <h2>Průběh tréninku</h2>
+      <div class="controls" style="margin-bottom:10px"><label for="sess">Trénink:</label><select id="sess"></select></div>
+      <div id="timeline"></div>
+    </div>
+    <div class="card"><h2>Kam pěsti míjejí terče</h2><div id="bias"></div></div>
   </div>
 </main>
 <div id="tip"></div>
@@ -282,6 +292,11 @@ async function render() {
   if (pct(tok, tn) < 85 && tn > 0) out.push(`Ruce jsou sledované jen v ${pct(tok, tn)} % snímků – to je málo, zkontroluj osvětlení a čistotu kamer headsetu.`);
   if (!out.length) out.push('Detekce vypadá v pořádku – žádný výrazný problém v datech.');
   $('recs').innerHTML = out.map((x) => `<li>${x}</li>`).join('');
+  // průběh a odchylky
+  lastRecs = recs;
+  $('sess').innerHTML = recs.map((r, i) => `<option value="${i}">${new Date(r.ts).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${r.track}</option>`).join('');
+  renderTimeline();
+  renderBias(recs);
   // tréninky
   $('sessions').innerHTML = `<table><thead><tr><th>Kdy</th><th>Skladba</th><th class="hide">Obtížnost</th><th class="num">Zásahy</th><th class="num hide">Sledování</th><th class="num hide">FPS</th><th></th></tr></thead><tbody>${recs.map((r) => {
     const t = r.items.filter((x) => x.ty !== 'finale');
@@ -291,6 +306,96 @@ async function render() {
     return `<tr><td>${new Date(r.ts).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${r.track}</td><td class="hide">${r.diff}</td><td class="num">${h}/${t.length}</td><td class="num hide">${pct(ok2, tn2)} %</td><td class="num hide">${f}</td><td><a href="${r.url}" target="_blank" rel="noopener">data</a></td></tr>`;
   }).join('')}</tbody></table>`;
 }
+
+// ---------- průběh jednoho tréninku ----------
+let lastRecs = [];
+function renderTimeline() {
+  const r = lastRecs[+$('sess').value || 0];
+  const el = $('timeline');
+  el.innerHTML = '';
+  if (!r) return;
+  const T = r.items.filter((x) => x.ty !== 'finale' && x.ty !== 'bomb');
+  const dur = Math.max(10, (r.result && r.result.t) || (T.length ? T[T.length - 1].t + 2 : 10));
+  const W = 900, H = 170, L = 40, B = 22, Rr = 10;
+  const X = (t) => L + (t / dur) * (W - L - Rr);
+  const vmax = Math.max(5, ...T.map((x) => x.s || x.np || 0));
+  const Y = (v) => H - B - (Math.min(v, vmax) / vmax) * (H - B - 10);
+  const thr = SENS[((r.set.sens && r.set.sens.jab) || 3) - 1].v;
+  let svg = `<svg class="tl" viewBox="0 0 ${W} ${H}" role="img" aria-label="Síla úderů v čase">`;
+  for (let v = 0; v <= vmax; v += 2) svg += `<line x1="${L}" x2="${W - Rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+  svg += `<line x1="${L}" x2="${W - Rr}" y1="${Y(thr)}" y2="${Y(thr)}" stroke="var(--text-muted)" stroke-dasharray="4 4"/><text x="${W - Rr}" y="${Y(thr) - 4}" text-anchor="end">práh citlivosti ${thr.toFixed(2)} m/s</text>`;
+  for (let t = 0; t <= dur; t += dur > 120 ? 30 : 10) svg += `<text x="${X(t)}" y="${H - 6}" text-anchor="middle">${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}</text>`;
+  svg += '</svg>';
+  el.insertAdjacentHTML('beforeend', `<div class="tl-legend"><span><i style="background:var(--s1)"></i>zásah (švih)</span><span><i style="background:var(--s2)"></i>minuto (rychlost při přiblížení)</span></div>`);
+  el.insertAdjacentHTML('beforeend', svg);
+  const sv = el.querySelector('svg');
+  for (const x of T) {
+    const miss = x.r === 'miss';
+    const v = miss ? x.np || x.ns || 0 : x.s || 0;
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('cx', X(x.t));
+    c.setAttribute('cy', Y(v));
+    c.setAttribute('r', 5);
+    c.setAttribute('fill', miss ? 'var(--s2)' : 'var(--s1)');
+    c.setAttribute('stroke', 'var(--surface-1)');
+    c.setAttribute('stroke-width', 2);
+    const why = miss ? reason(x) : x.r;
+    bindTip(c, `${x.t.toFixed(1)} s · ${TYPES[x.ty] || x.ty} ${x.h === 'L' ? 'levá' : x.h === 'R' ? 'pravá' : ''}${x.y ? ` · ${x.y}°` : ''}<br><b>${why}</b> · ${fmt(v)} m/s${x.o ? `<br>pěst vůči terči: ${x.o[0]} / ${x.o[1]} / ${x.o[2]} cm` : ''}`);
+    sv.append(c);
+  }
+  // úspěšnost v čase (klouzavě po 8 terčích) a posun hráče – dva samostatné grafy, každý se svou osou
+  const rate = T.map((x, i) => {
+    const w = T.slice(Math.max(0, i - 7), i + 1);
+    return { t: x.t, v: w.filter((y) => y.r !== 'miss').length / w.length };
+  });
+  const H2 = 110;
+  const Y2 = (v) => H2 - B - v * (H2 - B - 10);
+  let s2 = `<svg class="tl" viewBox="0 0 ${W} ${H2}" role="img" aria-label="Úspěšnost v čase">`;
+  for (const v of [0, 0.5, 1]) s2 += `<line x1="${L}" x2="${W - Rr}" y1="${Y2(v)}" y2="${Y2(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${Y2(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+  if (rate.length > 1) s2 += `<polyline fill="none" stroke="var(--s1)" stroke-width="2" points="${rate.map((p) => `${X(p.t)},${Y2(p.v)}`).join(' ')}"/>`;
+  s2 += '</svg>';
+  el.insertAdjacentHTML('beforeend', '<div class="tl-legend" style="margin-top:14px"><span>Úspěšnost (posledních 8 terčů)</span></div>' + s2);
+  const dr = r.drift || [];
+  if (dr.length) {
+    const dm = Math.max(20, ...dr.map((d) => Math.hypot(d.hx, d.hz)));
+    const Y3 = (v) => H2 - B - (v / dm) * (H2 - B - 10);
+    let s3 = `<svg class="tl" viewBox="0 0 ${W} ${H2}" role="img" aria-label="Posun hráče">`;
+    for (const v of [0, Math.round(dm / 2), Math.round(dm)]) s3 += `<line x1="${L}" x2="${W - Rr}" y1="${Y3(v)}" y2="${Y3(v)}" stroke="var(--grid)"/><text x="${L - 6}" y="${Y3(v) + 4}" text-anchor="end">${v}</text>`;
+    s3 += `<polyline fill="none" stroke="var(--s3)" stroke-width="2" points="${dr.map((d) => `${X(d.t)},${Y3(Math.hypot(d.hx, d.hz))}`).join(' ')}"/>`;
+    s3 += '</svg>';
+    el.insertAdjacentHTML('beforeend', '<div class="tl-legend" style="margin-top:14px"><span>Jak daleko ses posunul od místa kalibrace (cm) – hra střed pomalu posouvá za tebou</span></div>' + s3);
+  } else el.insertAdjacentHTML('beforeend', '<p class="muted">Posun hráče se zaznamenává od verze 10.3.</p>');
+}
+
+function renderBias(recs) {
+  const items = recs.flatMap((r) => r.items).filter((x) => x.o && x.ty !== 'bomb' && x.ty !== 'finale');
+  const el = $('bias');
+  if (!items.length) {
+    el.innerHTML = '<p class="muted">Data o poloze pěsti se zaznamenávají od verze 10.3.</p>';
+    return;
+  }
+  const avg = (a, k) => (a.length ? Math.round(a.reduce((s2, x) => s2 + x.o[k], 0) / a.length) : null);
+  const rows = [];
+  const notes = [];
+  for (const h of ['L', 'R']) {
+    const mi = items.filter((x) => x.h === h && x.r === 'miss');
+    const hi = items.filter((x) => x.h === h && x.r !== 'miss');
+    const om = [avg(mi, 0), avg(mi, 1), avg(mi, 2)], oh = [avg(hi, 0), avg(hi, 1), avg(hi, 2)];
+    for (const [a, o, nm] of [[mi, om, 'minuté'], [hi, oh, 'zásahy']]) if (a.length) rows.push(`<tr><td>${h === 'L' ? 'levá' : 'pravá'}</td><td>${nm}</td><td class="num">${a.length}</td><td class="num">${o[0]}</td><td class="num">${o[1]}</td><td class="num">${o[2]}</td></tr>`);
+    if (mi.length >= 4) {
+      // porovnat minutí se zásahy stejné ruky (při zásahu je pěst přirozeně kousek před středem terče)
+      const ruka = h === 'L' ? 'Levá' : 'Pravá';
+      const base = hi.length >= 4 ? oh : [0, 0, 0];
+      const d = [om[0] - base[0], om[1] - base[1], om[2] - base[2]];
+      if (Math.abs(d[1]) >= 6) notes.push(`${ruka} ruka při minutí míří o ${Math.abs(d[1])} cm ${d[1] < 0 ? 'níž' : 'výš'} než při zásahu.`);
+      if (Math.abs(d[0]) >= 6) notes.push(`${ruka} ruka při minutí míří o ${Math.abs(d[0])} cm ${d[0] < 0 ? 'víc vlevo' : 'víc vpravo'} než při zásahu.`);
+      if (d[2] >= 8) notes.push(`${ruka} ruka při minutí často nedosáhne – o ${d[2]} cm kratší úder než při zásahu (pomůže krok dopředu nebo nová kalibrace).`);
+    }
+  }
+  el.innerHTML = `<table><thead><tr><th>Ruka</th><th></th><th class="num">Terčů</th><th class="num">vlevo/vpravo (cm)</th><th class="num">dole/nahoře (cm)</th><th class="num">blíž/dál (cm)</th></tr></thead><tbody>${rows.join('')}</tbody></table><p class="muted">Poloha pěsti při největším přiblížení vůči středu terče: záporné = vlevo / pod / dál od hráče, kladné = vpravo / nad / blíž.</p>${notes.length ? '<ul class="rec">' + notes.map((x) => `<li>${x}</li>`).join('') + '</ul>' : ''}`;
+}
+
+$('sess').addEventListener('change', renderTimeline);
 
 $('pinForm').addEventListener('submit', (e) => { e.preventDefault(); load($('pin').value.trim()); });
 $('range').addEventListener('change', render);

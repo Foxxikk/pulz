@@ -63,3 +63,13 @@ export function track(name, data) {
     /* ignore */
   }
 }
+
+// otočení vektoru kolem svislé osy (yaw > 0 = doleva, při pohledu shora proti směru hodinových ručiček)
+export function rotY(v, yaw) {
+  if (!yaw) return v;
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const x = v.x, z = v.z;
+  v.x = x * c + z * s;
+  v.z = -x * s + z * c;
+  return v;
+}

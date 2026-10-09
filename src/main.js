@@ -1020,7 +1020,7 @@ class App {
   // odeslat záznam tréninku pro analýzu detekce (ukázka s botem se neposílá)
   uploadRec(g, r, done) {
     const rec = g.rec;
-    if (!rec || this.demo || this.mode !== 'vr' || rec.items.length < 8) return;
+    if (!rec || this.demo || this.mode !== 'vr' || rec.items.length < 5) return;
     rec.result = { done: !!done, score: r.score, acc: +r.acc.toFixed(3), grade: r.grade, hits: r.hits, misses: r.misses, t: +g.t.toFixed(1), reasons: r.reasons };
     try {
       fetch('/api/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec), keepalive: rec.items.length < 600 }).catch(() => {});

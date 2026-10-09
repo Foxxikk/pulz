@@ -339,6 +339,7 @@ export class TargetPool {
     return o;
   }
   animateBomb(o, r, dt) {
+    // (bomba se točí sama, úhel příletu nepotřebuje)
     o.g.rotation.x += dt * 1.3;
     o.g.rotation.y += dt * 1.9;
     // varovné blikání, rychlejší při přiblížení
@@ -465,7 +466,7 @@ export class TargetPool {
     o.core.scale.setScalar(1 - e * 0.62);
     // jemné kolébání během letu
     o.g.rotation.x = Math.sin(this.time * 2.3 + o.wob) * 0.12;
-    o.g.rotation.y = Math.cos(this.time * 1.9 + o.wob) * 0.12;
+    o.g.rotation.y = (o.yaw || 0) + Math.cos(this.time * 1.9 + o.wob) * 0.12;
     const near = Math.max(0, 1 - Math.max(0, r) / 1.0);
     const perfect = Math.abs(r) < perfectWin ? 1 : 0;
     // jádro se nabíjí a v perfektní chvíli zbělá

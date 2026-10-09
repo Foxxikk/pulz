@@ -105,16 +105,28 @@ export class Recorder {
         if (len < 0.2 || !fromGuard) continue; // nebyl to úder (mávnutí, posun, ruce dole)
         const fw = _d.dot(_f), lat = _d.dot(_r), up = _d.y;
         const inward = side === 'L' ? lat : -lat;
-        let type = null;
-        if (up > 0.16 && up > Math.abs(fw) * 0.9 && up > Math.abs(lat)) type = 'upper';
-        else if (inward > 0.14 && inward > fw * 0.8 && inward > Math.abs(up)) type = 'hook';
-        else if (fw > 0.15 && fw > Math.abs(lat) * 0.8 && h.fist.distanceTo(head) - g0.distanceTo(head) > 0.1) type = 'jab';
+        const hor = Math.hypot(_d.x, _d.z);
+        const ext = h.fist.distanceTo(head) - g0.distanceTo(head); // o kolik se pěst vzdálila od hlavy
+        let type = null, yawP = yaw;
+        if (up > 0.16 && up > hor * 0.9) type = 'upper';
+        else if (ext >= 0.12 && fw > 0.08) {
+          // přímý úder (i do strany): směr = kam pěst vyrazila
+          type = 'jab';
+          yawP = Math.atan2(-_d.x, -_d.z);
+        } else if (inward > 0.14 && inward > Math.abs(up)) type = 'hook';
         if (!type) continue;
+        // úhel příletu (vůči výchozímu směru), max ±35°, po 5°
+        const R5 = Math.PI / 36;
+        yawP = Math.max(-7 * R5, Math.min(7 * R5, Math.round(yawP / R5) * R5));
         const c = this.calib;
         const b = Math.round(this.map.beatOf(t) * 2) / 2;
         this.last[side] = t;
         if (live && !this.events.some((e) => e.kind === 't' && e.hand === side && e.beat === b)) {
-          const e = { kind: 't', type, hand: side, beat: b, px: +Math.max(-0.45, Math.min(0.45, h.fist.x - c.cx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
+          // místo zásahu v soustavě příletu
+          _d.set(h.fist.x - c.cx, 0, h.fist.z - c.cz);
+          const cy = Math.cos(-yawP), sy = Math.sin(-yawP);
+          const lx = _d.x * cy + _d.z * sy;
+          const e = { kind: 't', type, hand: side, beat: b, yaw: +yawP.toFixed(4), px: +Math.max(-0.45, Math.min(0.45, lx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
           this.events.push(e);
           out = e;
         }
