@@ -205,7 +205,7 @@ export function makePanels(app) {
     bigStepper(p, g, 'su', 640, 120, 'Zvedák', lv('upper'), sub('upper'));
     bigStepper(p, g, 'zone', 934, 120, 'Zóna zásahu', `${S.zone} · ${ZONE[S.zone - 1].name}`, `+${Math.round(ZONE[S.zone - 1].tol * 100)} cm`);
     smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
-    p.btn('barmode', 52, 422, 1176, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: jen podřep', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 30, weight: 800, on: (S.barriers || 'all') !== 'all' });
+    p.btn('barmode', 52, 422, 1176, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: jen půlkruhy (bez zdí)', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 30, weight: 800, on: (S.barriers || 'all') !== 'all' });
     smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
     smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);

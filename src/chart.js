@@ -106,27 +106,99 @@ export function buildChart(track, diffId, spb) {
     bar += bars;
     prevType = type;
   }
+  const totalBeats = bar * 4;
+  // bariéry z plánovače místo pevných ze vzorů
+  const phr = [];
+  let bb = 0;
+  for (const [type, bars] of track.structure) {
+    for (let p = 0; p < bars / 2; p++) phr.push({ b: bb + p * 8, type });
+    bb += bars * 4;
+  }
+  const rawT = raw.filter((e) => e.kind !== 'b').concat(planBarriers(phr, totalBeats - 4, () => spb, diffId, R));
+  raw.length = 0;
+  raw.push(...rawT);
   raw.sort((a, b) => a.beat - b.beat);
 
-  const totalBeats = bar * 4;
   const events = finalize(raw, (b) => b * spb, 8, totalBeats - 4);
   addFinale(events, (b) => b * spb, totalBeats - 2, totalBeats * spb);
   return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't').length, barriers: events.filter((e) => e.kind === 'b').length };
 }
 
+
+// ---------- bariéry: půlkruhy (i šikmé), spirály za sebou a létající zdi ----------
+// úhel v násobcích 45°: 0 = podřep, ±1 = podřep do strany (šikmo), ±2 = úklon
+const SPIRAL_TYPE = { '-2': 'leanL', '-1': 'duckL', 0: 'duck', 1: 'duckR', 2: 'leanR' };
+const BAR_PLAN = {
+  // pravděpodobnost bariérové figury ve frázi podle sekce
+  easy: { intro: 0, groove: 0.35, build: 0.45, drop: 0.25, break: 0.6, outro: 0, seq: 3, slalom: 2 },
+  mid: { intro: 0.1, groove: 0.4, build: 0.55, drop: 0.35, break: 0.75, outro: 0, seq: 5, slalom: 2 },
+  hard: { intro: 0.2, groove: 0.5, build: 0.7, drop: 0.45, break: 0.85, outro: 0, seq: 7, slalom: 3 },
+};
+
+// phrases: [{ b: první doba fráze (8 dob), type }]; spbAt(b) = délka doby v s
+function planBarriers(phrases, maxBeat, spbAt, diffId, R) {
+  const P = BAR_PLAN[diffId];
+  const out = [];
+  let free = 6; // první doba, od které smí přijít další figura
+  let seqId = 0;
+  phrases.forEach((ph, pi) => {
+    const p = P[ph.type] ?? 0.3;
+    if (ph.b < free || ph.b + 8 > maxBeat - 4 || R() >= p) return;
+    const spb = spbAt(ph.b + 2);
+    const kind = ph.type === 'break' || ph.type === 'build' ? 'spiral' : ph.type === 'drop' ? (R() < 0.7 ? 'slalom' : 'single') : R() < 0.45 ? 'single' : R() < 0.6 ? 'spiral' : 'wall';
+    seqId++;
+    if (kind === 'spiral') {
+      // půlkruhy za sebou, každý pootočený o 45° → hlava opisuje oblouk („prohnutí“)
+      const step = spb >= (diffId === 'easy' ? 0.6 : 0.42) && diffId !== 'easy' ? 1 : 2;
+      const len = Math.min(P.seq, Math.floor(7 / step) + 1);
+      let a = 0, d = R() < 0.5 ? -1 : 1;
+      if (diffId !== 'easy' && R() < 0.4) a = d * 2; // někdy začne úklonem a jde přes podřep na druhou stranu
+      for (let k = 0; k < len; k++) {
+        out.push({ kind: 'b', type: SPIRAL_TYPE[a], beat: ph.b + 1 + k * step, sx: 0, sy: 0, seq: seqId });
+        let n = a + d;
+        if (Math.abs(n) > 2 || (diffId === 'easy' && Math.abs(n) > 1)) {
+          d = -d;
+          n = a + d;
+        }
+        a = n;
+      }
+      free = ph.b + 1 + (len - 1) * step + 5;
+    } else if (kind === 'slalom') {
+      // létající zdi střídavě vlevo a vpravo → krok do strany
+      const step = Math.max(2, Math.ceil(0.85 / spb));
+      let side = R() < 0.5 ? 'wallL' : 'wallR';
+      const len = P.slalom;
+      for (let k = 0; k < len; k++) {
+        out.push({ kind: 'b', type: side, beat: ph.b + 2 + k * step, sx: 0, sy: 0, seq: seqId });
+        side = side === 'wallL' ? 'wallR' : 'wallL';
+      }
+      free = ph.b + 2 + (len - 1) * step + 5;
+    } else if (kind === 'wall') {
+      out.push({ kind: 'b', type: R() < 0.5 ? 'wallL' : 'wallR', beat: ph.b + 4, sx: 0, sy: 0, seq: seqId });
+      free = ph.b + 9;
+    } else {
+      const pool = diffId === 'easy' ? ['duck', 'duck', 'wallL', 'wallR'] : ['duck', 'duckL', 'duckR', 'leanL', 'leanR', 'wallL', 'wallR'];
+      out.push({ kind: 'b', type: pool[Math.floor(R() * pool.length)], beat: ph.b + 4, sx: 0, sy: 0, seq: seqId });
+      free = ph.b + 9;
+    }
+  });
+  return out;
+}
+
 // společné dočištění: bariéry, volno kolem nich, stejná ruka min. 0,35 s, časy
 function finalize(raw, timeOf, minBeat, maxBeat) {
   raw.sort((a, b) => a.beat - b.beat);
-  // bariéry: min. 2 takty od sebe, úklon nikdy hned po úklonu (žádné „spirály“)
-  const barriers = [];
-  for (const e of raw) {
-    if (e.kind !== 'b') continue;
-    const prev = barriers[barriers.length - 1];
-    if (prev && e.beat - prev.beat < 8) continue;
-    if (prev && prev.type !== 'duck' && e.type !== 'duck' && e.beat - prev.beat < 24) e.type = 'duck';
-    barriers.push(e);
+  // bariéry naplánované planBarriers (figury: spirála půlkruhů, slalom zdí, jednotlivé)
+  const barriers = raw.filter((e) => e.kind === 'b');
+  // terče ne těsně u bariér a ne uvnitř figury (hráč se vyhýbá, ne boxuje)
+  const seqSpan = {};
+  for (const b of barriers) {
+    const sp = (seqSpan[b.seq] = seqSpan[b.seq] || [b.beat, b.beat]);
+    sp[0] = Math.min(sp[0], b.beat);
+    sp[1] = Math.max(sp[1], b.beat);
   }
-  let events = raw.filter((e) => e.kind === 't' && !barriers.some((b) => Math.abs(b.beat - e.beat) < 0.9));
+  const spans = Object.values(seqSpan);
+  let events = raw.filter((e) => e.kind === 't' && !barriers.some((b) => Math.abs(b.beat - e.beat) < 1.1) && !spans.some(([a, z]) => e.beat > a - 1.1 && e.beat < z + 1.1));
   const lastT = { L: -9, R: -9 };
   const ok = [];
   for (const e of events) {
@@ -183,7 +255,7 @@ export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
   };
   const raw = [];
   const minGap = MIN_GAP[diffId];
-  let lastT = -9, lastBarrierBeat = -99, lastLean = null;
+  let lastT = -9;
   for (let pi = 0; pi < phrases.length; pi++) {
     const ph = phrases[pi];
     if (ph.type === 'silent') continue;
@@ -231,27 +303,14 @@ export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
       prevT = x.t;
     }
     if (chosen.length) lastT = chosen[chosen.length - 1].t;
-    // bariéra: max. jedna za 4 takty, jen ve volném místě, úklony nikdy za sebou
-    const barrierOk = ph.type === 'break' || ph.type === 'groove' || (ph.type === 'drop' && R() < 0.35);
-    if (barrierOk && ph.b - lastBarrierBeat >= 16 && R() < (diffId === 'easy' ? 0.35 : 0.5)) {
-      // najít dobu bez terče v okolí ±1,2 doby
-      for (const k of [4, 6, 2, 5, 3]) {
-        const bb = ph.b + k;
-        if (bb >= beats.length - 2) break;
-        if (raw.some((e) => e.kind === 't' && Math.abs(e.beat - bb) < 1.2)) continue;
-        let type = 'duck';
-        if (lastLean === null && R() < 0.25) type = R() < 0.5 ? 'leanL' : 'leanR';
-        raw.push({ kind: 'b', type, beat: bb, sx: 0, sy: 0 });
-        lastBarrierBeat = bb;
-        lastLean = type === 'duck' ? null : type;
-        break;
-      }
-    }
   }
   let minBeat = 0;
   while (minBeat < beats.length && beats[minBeat] < 3.5) minBeat++;
   const lastPh = phrases.filter((p) => p.type !== 'silent').pop();
   const maxBeat = lastPh ? lastPh.b + 8 : beats.length - 1;
+  const spbAt = (b) => timeOf(b + 1) - timeOf(b);
+  const phr = phrases.filter((p) => p.type !== 'silent').map((p) => ({ b: p.b, type: p.type }));
+  raw.push(...planBarriers(phr, Math.min(maxBeat, beats.length - 2), spbAt, diffId, R));
   const events = finalize(raw, timeOf, minBeat, Math.min(maxBeat, beats.length - 2));
   addFinale(events, timeOf, Math.min(maxBeat, beats.length - 2), an.duration);
   return {

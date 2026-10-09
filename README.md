@@ -5,7 +5,8 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 - **Modrý terč = levá ruka, oranžový = pravá.**
 - Terč je 3D disk ze šesti dílů – po zásahu se rozletí na kusy.
 - Bílé křídlo na boku = **hook** (úder zboku), křídlo dole = **zvedák**, čistý disk = **direkt**. Velký zlatý terč na konci = **finále** (libovolnou rukou).
-- Oranžový průsvitný „měsíc“: plochá hrana vodorovně = **podřep**, svisle = **úklon** na druhou stranu.
+- Oranžový půlkruh: plochá hrana vodorovně = **podřep**, šikmo = **podřep do strany**, svisle = **úklon**; často jdou za sebou ve spirále.
+- Růžová zeď zleva/zprava = **ukroč** na druhou stranu.
 - Combo násobí body (×2 od 10, ×3 od 25, ×4 od 50), na konci známka S–D, rekordy, odhad kalorií.
 
 ## Jak hrát
@@ -15,6 +16,14 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 4. Pauza: podrž pravý ukazováček na tlačítku na levém zápěstí (nebo otevři menu Questu).
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
+
+## Novinky v6
+- **Větší terče** (průměr 34 cm místo 26 cm) s výraznější kopulí; zóna zásahu zůstala zhruba stejná, takže hra není „laxnější“.
+- **Lepší buben**: zvuk zásahu je model skutečné blány (6 kmitových módů kruhové membrány s vlastním doznáním), úder paličky, rezonance korpusu, „buch“ do hrudi, jemné přebuzení a krátký prostor. Direkt = tom (levá ruka výš, pravá níž), hook/zvedák = velký kotel jako taiko.
+- **Spirály půlkruhů**: série 3–7 půlkruhů za sebou, každý pootočený o 45° (úklon → šikmý podřep → podřep → šikmý podřep → úklon na druhou stranu), takže tělo opisuje oblouk. Nové šikmé půlkruhy. Bariéry jsou zhruba 4× častější.
+- **Létající zdi**: růžové skleněné stěny s výstražnými pruhy u hrany – zleva nebo zprava, musíš ukročit na druhou stranu; v refrénech „slalom“ zdí střídavě vlevo a vpravo.
+- Přepínač v nastavení: **Bariéry: všechny / jen půlkruhy (bez zdí) / vypnuté**.
+- **Grafika**: neonové brány nad dráhou terčů, které jedou k hráči a blikají do rytmu, proud světelných částic (pocit rychlosti), půlkruhy se silnou zářící 3D obrubou.
 
 ## Novinky v5
 - **Vypouklé terče**: čelo každé výseče je lesklá lakovaná kopule (clearcoat), po které běhají odlesky z okolí. Terč na hook je natočený čelem do strany, odkud přichází pěst, terč na zvedák čelem dolů (natočení ~40°, aby zůstal čitelný). Úlomky po zásahu jsou vypouklé taky.

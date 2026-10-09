@@ -1153,6 +1153,8 @@ class App {
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
     this.env.beat = this.screen === 'play' ? this.beatPulse : 0;
+    this.env.playing = this.screen === 'play';
+    this.env.streamMat.uniforms.uPx.value = this.renderer.domElement.height;
     this.env.update(dt);
     this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0);
     this.fx.splashOn = this.env.splash;

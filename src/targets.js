@@ -3,14 +3,14 @@
 // Směr hooku/zvedáku ukazuje bílé 3D „křídlo“. Finále = velký zlatý terč.
 // Bariéry: energetické štíty („Měsíc“).
 import * as THREE from 'three';
-import { COL, GEO } from './config.js';
+import { COL, GEO, BAR } from './config.js';
 import { drawHexIcon } from './hands.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const R = GEO.targetR;
 const SEG = 6;
-const DEPTH = 0.046;
-const DOME = 0.042; // výška vypouklého čela
+const DEPTH = 0.056;
+const DOME = 0.055; // výška vypouklého čela
 const TILT = 0.72; // natočení hooku/zvedáku proti pěsti (rad)
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _w = new THREE.Vector3(), _e = new THREE.Euler();
 
@@ -161,6 +161,27 @@ void main(){
   gl_FragColor = vec4(uColor * (1.0 + edge * 0.8), clamp(a, 0.0, 1.0) * uOp);
 }`;
 
+const wallVS = `
+varying vec2 vP;
+void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`;
+// zeď: sklo s šestiúhelníkovou mřížkou, výstražné pruhy u hrany, skenovací linky
+const wallFS = `
+uniform vec3 uColor; uniform float uOp; uniform float uTime;
+varying vec2 vP;
+void main(){
+  float y = vP.y + 1.15;          // 0 = hrana u hráče, 2.3 = vnější
+  vec2 q = vP * vec2(7.0, 8.0);
+  q.x += mod(floor(q.y), 2.0) * 0.5;
+  vec2 f = abs(fract(q) - 0.5);
+  float hex = smoothstep(0.40, 0.48, max(f.x * 1.15, f.y));
+  float stripes = step(0.5, fract((vP.x - vP.y) * 3.0 + uTime * 0.8)) * (1.0 - smoothstep(0.0, 0.28, y));
+  float scan = smoothstep(0.03, 0.0, abs(fract(y * 0.6 - uTime * 0.7) - 0.5));
+  float edgeGlow = 1.0 - smoothstep(0.0, 0.18, y);
+  float a = 0.18 + hex * 0.22 + stripes * 0.45 + scan * 0.25 + edgeGlow * 0.35;
+  vec3 c = mix(uColor, vec3(1.0, 0.85, 0.3), stripes * 0.8);
+  gl_FragColor = vec4(c * (0.8 + edgeGlow * 0.8), clamp(a, 0.0, 0.9) * uOp);
+}`;
+
 export class TargetPool {
   constructor(scene) {
     this.scene = scene;
@@ -245,7 +266,7 @@ export class TargetPool {
     o.g.scale.setScalar(1);
     o.spin.rotation.set(0, 0, Math.random() * 6.28);
     o.wob = Math.random() * 6;
-    o.base = type === 'finale' ? 2.1 : 1;
+    o.base = type === 'finale' ? 1.7 : 1;
     // čelo terče míří proti směru úderu (hook ze strany, zvedák zespodu), napůl k hráči, ať je čitelné
     const gd = GEO[type] || GEO.jab;
     const dx = gd.dir[0] * (type === 'hook' && side === 'L' ? -1 : 1);
@@ -336,6 +357,7 @@ export class TargetPool {
   }
 
   makeBarrier() {
+    // půlkruh: energetický štít + silná 3D obruba se zářícími konci
     const g = new THREE.Group();
     const mat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(0xffa830) }, uOp: { value: 0 }, uTime: { value: 0 } },
@@ -348,21 +370,51 @@ export class TargetPool {
     });
     const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 64, 0, Math.PI), mat);
     g.add(disc);
-    const edgeMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.95, toneMapped: false, depthWrite: false, blending: THREE.AdditiveBlending });
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(1, 0.02, 8, 80, Math.PI), edgeMat);
+    const edgeMat = new THREE.MeshStandardMaterial({ color: 0x3a2200, emissive: 0xffb040, emissiveIntensity: 2.2, metalness: 0.6, roughness: 0.25, transparent: true, opacity: 1 });
+    const arc = new THREE.Mesh(new THREE.TorusGeometry(1, 0.035, 10, 96, Math.PI), edgeMat);
     g.add(arc);
-    const line = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 2.04, 12), edgeMat);
+    const line = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.08, 14), edgeMat);
     line.rotation.z = Math.PI / 2;
     g.add(line);
-    for (const x of [-1, 1]) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffc050, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-      s.position.set(x, 0, 0);
-      s.scale.setScalar(0.35);
-      g.add(s);
+    const glows = [];
+    for (const x of [-1, 1, 0]) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffc050, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      sp.position.set(x, x === 0 ? 1 : 0, 0);
+      sp.scale.setScalar(x === 0 ? 0.3 : 0.45);
+      g.add(sp);
+      glows.push(sp);
     }
+    // zeď: pevný panel s rámem (zobrazí se jen u typu wall*)
+    const wall = new THREE.Group();
+    const wallMat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(0xff3d6e) }, uOp: { value: 0 }, uTime: { value: 0 } },
+      vertexShader: wallVS,
+      fragmentShader: wallFS,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const WH = 2.3; // jak daleko do strany zeď sahá
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(3.0, WH, 1, 1), wallMat);
+    panel.position.y = WH / 2;
+    wall.add(panel);
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x2a0610, emissive: 0xff3d6e, emissiveIntensity: 2, metalness: 0.7, roughness: 0.3, transparent: true });
+    const beam = (w, h, x, y) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), frameMat);
+      m.position.set(x, y, 0);
+      wall.add(m);
+    };
+    beam(3.0, 0.08, 0, 0); // hrana u hráče (nejdůležitější)
+    beam(3.0, 0.05, 0, WH);
+    beam(0.05, WH, -1.5, WH / 2);
+    beam(0.05, WH, 1.5, WH / 2);
+    const wallGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0xff4070, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    wallGlow.scale.set(3.4, 0.5, 1);
+    wall.add(wallGlow);
+    g.add(wall);
     g.visible = false;
     this.scene.add(g);
-    return { g, mat, edgeMat, busy: false };
+    return { g, mat, edgeMat, disc, arc, line, glows, wall, wallMat, frameMat, busy: false, kind: 'arc' };
   }
 
   getBarrier(type) {
@@ -373,20 +425,34 @@ export class TargetPool {
     }
     o.busy = true;
     o.g.visible = true;
-    o.g.scale.setScalar(0.9);
-    if (type === 'duck') o.g.rotation.set(0, 0, 0);
-    else if (type === 'leanL') o.g.rotation.set(0, 0, -Math.PI / 2);
-    else o.g.rotation.set(0, 0, Math.PI / 2);
+    const b = BAR[type] || BAR.duck;
+    o.kind = b.kind;
+    const isWall = b.kind === 'wall';
+    o.disc.visible = o.arc.visible = o.line.visible = !isWall;
+    for (const sp of o.glows) sp.visible = !isWall;
+    o.wall.visible = isWall;
+    o.g.scale.setScalar(isWall ? 1 : 0.9);
+    o.g.rotation.set(0, 0, b.ang);
     this.barrierLook(o, 0, false);
     return o;
   }
 
   barrierLook(o, op, hit) {
+    if (o.kind === 'wall') {
+      o.wallMat.uniforms.uOp.value = op;
+      o.wallMat.uniforms.uTime.value = this.time;
+      o.wallMat.uniforms.uColor.value.setHex(hit ? 0xff2020 : 0xff3d6e);
+      o.frameMat.opacity = op;
+      o.frameMat.emissiveIntensity = 1.6 + this.beatPulse * 1.5;
+      return;
+    }
     o.mat.uniforms.uOp.value = op;
     o.mat.uniforms.uTime.value = this.time;
     o.mat.uniforms.uColor.value.setHex(hit ? 0xff3030 : 0xffa830);
-    o.edgeMat.color.setHex(hit ? 0xff6060 : 0xffe08a);
-    o.edgeMat.opacity = 0.95 * op;
+    o.edgeMat.emissive.setHex(hit ? 0xff4040 : 0xffb040);
+    o.edgeMat.emissiveIntensity = 1.8 + this.beatPulse * 1.6;
+    o.edgeMat.opacity = op;
+    for (const sp of o.glows) sp.material.opacity = op * (0.7 + this.beatPulse * 0.3);
   }
 
   releaseBarrier(o) {

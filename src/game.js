@@ -1,6 +1,6 @@
 // Herní logika tréninku: terče letí v rytmu, posuzování zásahů, skóre, combo, bariéry, kalorie
 import * as THREE from 'three';
-import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES } from './config.js';
+import { GEO, JUDGE, COL, DIFFS, SENS, ZONE, PUNCH_NAMES, BAR } from './config.js';
 import { clamp } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
@@ -51,7 +51,7 @@ export class Game {
     this.chart = chart;
     const bm = this.app.settings.barriers || 'all';
     this.events = chart.events
-      .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && e.type === 'duck'))
+      .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && (BAR[e.type] || BAR.duck).kind === 'arc'))
       .map((e, i) => Object.assign({}, e, { i }));
     this.finaleDone = null;
     this.duration = chart.duration;
@@ -82,10 +82,11 @@ export class Game {
   hitPos(e, out) {
     const c = this.calib;
     if (e.kind === 'b') {
-      const s = this.app.settings;
-      if (e.type === 'duck') return out.set(c.cx, c.headH - s.barrierDrop, c.cz);
-      const edge = e.type === 'leanL' ? c.cx - 0.12 : c.cx + 0.12;
-      return out.set(edge, c.headH - 0.1, c.cz);
+      // střed bariéry = výchozí poloha hlavy posunutá proti normále o potřebný úhyb
+      const b = BAR[e.type] || BAR.duck;
+      const dist = b.dist === 'drop' ? this.app.settings.barrierDrop * (b.ang ? 0.85 : 1) : b.dist;
+      const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
+      return out.set(c.cx - nx * dist, c.headH - ny * dist, c.cz);
     }
     const g = GEO[e.type];
     const sgn = e.hand === 'L' ? -1 : 1;
@@ -213,7 +214,7 @@ export class Game {
                 it.near = dist - RAD;
                 it.nearSpd = Math.max(it.nearSpd, h.speed);
               }
-              if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 1.1 : RAD)) continue;
+              if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 0.7 : RAD)) continue;
               this.contact(it, h, t);
               if (it.state !== 'fly') break;
             }
@@ -397,10 +398,10 @@ export class Game {
 
   judgeBarrier(it, head) {
     const app = this.app;
-    let ok;
-    if (it.type === 'duck') ok = head.y < it.hit.y - 0.02;
-    else if (it.type === 'leanL') ok = head.x < it.hit.x;
-    else ok = head.x > it.hit.x;
+    const b = BAR[it.type] || BAR.duck;
+    const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
+    // hlava musí být na volné straně hrany (aspoň 1,5 cm)
+    const ok = (head.x - it.hit.x) * nx + (head.y - it.hit.y) * ny < -0.015;
     it.t1 = this.t;
     if (ok) {
       it.state = 'passed';

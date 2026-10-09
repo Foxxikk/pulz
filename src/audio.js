@@ -394,15 +394,16 @@ export class AudioSys {
     const sr = this.ctx.sampleRate;
     const defs = {
       // zásah = buben (hodí se k téměř každé hudbě); výšku mění ruka přes playbackRate
-      hit: [0.45, (k, d) => {
-        k.drum(0, 132, 0.3, 1.0, d, { click: 3400, clickV: 0.5, skin: 1300, skinV: 0.32 });
+      // zásah = buben (tom); výšku mění ruka přes playbackRate
+      hit: [0.7, (k, d) => {
+        k.tom(0, 118, 0.42, 0.9, d, { stick: 4300, stickV: 0.6, shellV: 0.4, sub: 62, subV: 0.55, room: 0.16, roomLen: 0.45 });
       }],
-      hitBig: [0.6, (k, d) => {
-        k.drum(0, 92, 0.42, 1.0, d, { click: 2600, clickV: 0.6, skin: 950, skinV: 0.38 });
-        k.kick(0, 0.55, d);
+      // hook / zvedák = velký kotel (taiko) s hlubokým „buch“
+      hitBig: [0.95, (k, d) => {
+        k.tom(0, 82, 0.6, 0.95, d, { stick: 3200, stickV: 0.75, shellV: 0.5, sub: 48, subV: 0.9, bend: 1.6, drive: 2.8, room: 0.2, roomLen: 0.6 });
       }],
       perfect: [0.3, (k, d) => {
-        k.snare(0, 0.32, d);
+        k.snare(0, 0.3, d);
       }],
       weak: [0.2, (k, d) => {
         k.tone(0, 420, 0.06, 0.35, 'triangle', d, 300);
@@ -440,11 +441,10 @@ export class AudioSys {
         k.tone(0.12, 660, 0.16, 0.22, 'sine', d);
       }],
       finish: [1.8, (k, d) => {
-        k.drum(0, 110, 0.3, 0.8, d);
-        k.drum(0.09, 92, 0.3, 0.85, d);
-        k.drum(0.18, 76, 0.4, 0.9, d);
-        k.kick(0.36, 1, d);
-        k.drum(0.36, 70, 0.6, 0.9, d);
+        k.tom(0, 130, 0.35, 0.7, d, { room: 0.15 });
+        k.tom(0.09, 104, 0.35, 0.75, d, { room: 0.15 });
+        k.tom(0.18, 84, 0.45, 0.8, d, { room: 0.15 });
+        k.tom(0.36, 66, 0.9, 1, d, { sub: 45, subV: 1, drive: 3, room: 0.25, roomLen: 1 });
         k.crash(0.36, 0.3, d);
       }],
       splash: [0.4, (k, d) => {

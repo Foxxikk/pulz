@@ -104,16 +104,28 @@ export const POWER = [
 ];
 
 export const GEO = {
-  targetR: 0.13, // poloměr terče
+  targetR: 0.17, // poloměr terče
   fistR: 0.06, // poloměr pěsti
-  tol: 0.04, // tolerance zásahu
+  tol: 0.03, // tolerance zásahu
   spawnDist: 26, // jak daleko se terč objeví
   finalFrac: 0.4, // podíl rychlosti na konci letu (terč přilétá svižně, úder je čitelný)
   // pozice úderů vůči hlavě (pravá ruka; levá zrcadlově)
-  jab: { x: 0.17, dy: -0.22, dir: [0, 0, -1] },
-  hook: { x: 0.1, dy: -0.15, dir: [-1, 0, 0] },
-  upper: { x: 0.13, dy: -0.33, dir: [0, 1, 0] },
+  jab: { x: 0.21, dy: -0.22, dir: [0, 0, -1] },
+  hook: { x: 0.13, dy: -0.15, dir: [-1, 0, 0] },
+  upper: { x: 0.16, dy: -0.36, dir: [0, 1, 0] },
   finale: { x: 0, dy: -0.2, dir: [0, 0, -1] },
+};
+
+// Bariéry: ang = natočení (normála blokované poloroviny n = (−sin ang, cos ang)),
+// dist = o kolik musí hlava uhnout proti n (m); 'drop' = podle nastavené hloubky podřepu.
+export const BAR = {
+  duck: { ang: 0, dist: 'drop', kind: 'arc', name: 'podřep' },
+  duckL: { ang: -Math.PI / 4, dist: 'drop', kind: 'arc', name: 'podřep vlevo' },
+  duckR: { ang: Math.PI / 4, dist: 'drop', kind: 'arc', name: 'podřep vpravo' },
+  leanL: { ang: -Math.PI / 2, dist: 0.12, kind: 'arc', name: 'úklon vlevo' },
+  leanR: { ang: Math.PI / 2, dist: 0.12, kind: 'arc', name: 'úklon vpravo' },
+  wallL: { ang: Math.PI / 2, dist: 0.2, kind: 'wall', name: 'zeď vlevo' }, // zeď zleva → uhni doprava
+  wallR: { ang: -Math.PI / 2, dist: 0.2, kind: 'wall', name: 'zeď vpravo' },
 };
 
 export const JUDGE = { perfect: 0.06, great: 0.12, late: 0.22 };
@@ -128,11 +140,11 @@ export const SENS = [
 ];
 // Velikost zóny zásahu (1–5): přídavná tolerance (m) a „zúžení“ ve směru úderu
 export const ZONE = [
-  { name: 'Malá', tol: 0.02, squash: 1.9 },
-  { name: 'Menší', tol: 0.04, squash: 1.6 },
-  { name: 'Střední', tol: 0.06, squash: 1.35 },
-  { name: 'Větší', tol: 0.09, squash: 1.15 },
-  { name: 'Velká', tol: 0.13, squash: 1.0 },
+  { name: 'Malá', tol: 0.0, squash: 1.9 },
+  { name: 'Menší', tol: 0.015, squash: 1.6 },
+  { name: 'Střední', tol: 0.035, squash: 1.35 },
+  { name: 'Větší', tol: 0.065, squash: 1.15 },
+  { name: 'Velká', tol: 0.1, squash: 1.0 },
 ];
 export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák', finale: 'Finále' };
 

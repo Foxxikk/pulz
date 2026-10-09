@@ -241,6 +241,82 @@ export class Kit {
     n2.connect(lp).connect(g4).connect(dest);
   }
 
+  // realističtější buben: módy kruhové membrány (Besselovy poměry), každý s vlastním doznáním,
+  // napínací „pitch bend“ na začátku, palička, korpus, saturace a krátký prostor
+  tom(t, f, dur, v, dest, o = {}) {
+    const oc = this.oc;
+    const bus = this.gain(1);
+    // jemná saturace (tanh) – dodá „punch“
+    const sh = oc.createWaveShaper();
+    const drive = o.drive ?? 2.2;
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) {
+      const x = (i / 1023) * 2 - 1;
+      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
+    }
+    sh.curve = curve;
+    bus.connect(sh).connect(dest);
+    // prostor
+    if (o.room) {
+      const cv = oc.createConvolver();
+      cv.buffer = impulse(oc, o.roomLen || 0.5, 4);
+      const wet = this.gain(o.room);
+      sh.connect(cv).connect(wet).connect(dest);
+    }
+    const modes = [
+      [1.0, 1.0, 1.0],
+      [1.59, 0.42, 0.45],
+      [2.14, 0.26, 0.3],
+      [2.3, 0.2, 0.26],
+      [2.65, 0.14, 0.2],
+      [2.92, 0.1, 0.16],
+    ];
+    const bend = o.bend ?? 1.45;
+    for (const [ratio, amp, dk] of modes) {
+      const os = oc.createOscillator();
+      os.type = 'sine';
+      const fr = f * ratio;
+      os.frequency.setValueAtTime(fr * bend, t);
+      os.frequency.exponentialRampToValueAtTime(fr, t + 0.035);
+      os.frequency.exponentialRampToValueAtTime(fr * 0.94, t + dur * dk);
+      const g = this.gain(0);
+      this.env(g.gain, t, 0.0015, v * amp, dur * dk);
+      os.connect(g).connect(bus);
+      os.start(t);
+      os.stop(t + dur * dk + 0.05);
+    }
+    // palička: ostrý klik + krátký šum
+    const n = this.noiseSrc(t, 0.03);
+    const bp = this.filt('bandpass', o.stick || 4200, 0.7);
+    const g3 = this.gain(0);
+    this.env(g3.gain, t, 0.0005, v * (o.stickV ?? 0.7), 0.012);
+    n.connect(bp).connect(g3).connect(bus);
+    const n1 = this.noiseSrc(t, 0.01);
+    const hp = this.filt('highpass', 7000, 0.7);
+    const g1 = this.gain(0);
+    this.env(g1.gain, t, 0.0003, v * 0.35, 0.004);
+    n1.connect(hp).connect(g1).connect(bus);
+    // korpus / kůže: pásmový šum kolem 2–3× základu
+    const n2 = this.noiseSrc(t, dur * 0.4);
+    const bp2 = this.filt('bandpass', f * 2.6, 1.4);
+    const g4 = this.gain(0);
+    this.env(g4.gain, t, 0.001, v * (o.shellV ?? 0.45), dur * 0.22);
+    n2.connect(bp2).connect(g4).connect(bus);
+    // sub „buch“ (hrudník)
+    if (o.sub) {
+      const os = oc.createOscillator();
+      os.type = 'sine';
+      os.frequency.setValueAtTime(o.sub * 2.4, t);
+      os.frequency.exponentialRampToValueAtTime(o.sub, t + 0.04);
+      os.frequency.exponentialRampToValueAtTime(o.sub * 0.8, t + dur);
+      const g = this.gain(0);
+      this.env(g.gain, t, 0.002, v * (o.subV ?? 0.8), dur * 0.8);
+      os.connect(g).connect(bus);
+      os.start(t);
+      os.stop(t + dur + 0.05);
+    }
+  }
+
   // pruty snare (kostra snare bez tónu), na perfektní zásah
   snare(t, v, dest) {
     const n = this.noiseSrc(t, 0.22);

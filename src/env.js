@@ -605,6 +605,43 @@ export class Env {
     rp.rotation.x = -Math.PI / 2;
     rp.position.y = 0.004;
     g.add(rp);
+    // neonové brány nad dráhou terčů (jedou k hráči, blikají do rytmu)
+    this.gates = [];
+    const gateGeo = new THREE.TorusGeometry(2.6, 0.045, 8, 72, Math.PI);
+    const cGL = new THREE.Color(0x3d8fff), cGR = new THREE.Color(0xff8c26);
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.MeshBasicMaterial({ color: i % 2 ? cGR : cGL, toneMapped: false, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const ga = new THREE.Mesh(gateGeo, m);
+      ga.userData.z = -9 - i * 7;
+      ga.position.set(0, 0.2, ga.userData.z);
+      ga.renderOrder = -2;
+      this.scene.add(ga);
+      this.gates.push(ga);
+    }
+    // proud světelných částic k hráči (pocit rychlosti)
+    const NP = 260;
+    const pp = new Float32Array(NP * 3), ps = new Float32Array(NP);
+    for (let i = 0; i < NP; i++) {
+      pp[i * 3] = (Math.random() - 0.5) * 7;
+      pp[i * 3 + 1] = 0.3 + Math.random() * 3.2;
+      pp[i * 3 + 2] = -Math.random() * 40;
+      ps[i] = 0.5 + Math.random();
+    }
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+    pg.setAttribute('sz', new THREE.BufferAttribute(ps, 1));
+    this.streamMat = new THREE.ShaderMaterial({
+      uniforms: { uOp: { value: 0.25 }, uPx: { value: 300 } },
+      vertexShader: 'attribute float sz; uniform float uPx; varying float vF; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.0); gl_Position = projectionMatrix*mv; float d = -mv.z; vF = smoothstep(40.0, 25.0, d) * smoothstep(0.4, 2.5, d); gl_PointSize = uPx * 0.012 * sz / max(d, 0.5); }',
+      fragmentShader: 'uniform float uOp; varying float vF; void main(){ vec2 c = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.0, length(c)); gl_FragColor = vec4(vec3(0.75, 0.9, 1.0), a * uOp * vF); }',
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.stream = new THREE.Points(pg, this.streamMat);
+    this.stream.frustumCulled = false;
+    this.scene.add(this.stream);
+    this.playing = false;
     this.ripT = 9;
     this.beat = 0;
     this.lastBeat = 0;
@@ -621,6 +658,28 @@ export class Env {
   }
 
   updateFx(dt) {
+    // brány a proud částic
+    const spd = this.playing ? 3.2 : 0.8;
+    for (const ga of this.gates) {
+      ga.userData.z += spd * dt;
+      if (ga.userData.z > -5) ga.userData.z -= 42;
+      ga.position.z = ga.userData.z;
+      const far = Math.min(1, Math.max(0, (-ga.userData.z - 5) / 6)) * Math.min(1, Math.max(0, (47 + ga.userData.z) / 8));
+      ga.material.opacity = far * ((this.playing ? 0.35 : 0.18) + this.beat * 0.55);
+      ga.scale.setScalar(1 + this.beat * 0.03);
+    }
+    const pa = this.stream.geometry.attributes.position, arr = pa.array;
+    const vs = this.playing ? 7 : 1.2;
+    for (let i = 0; i < arr.length; i += 3) {
+      arr[i + 2] += vs * dt;
+      if (arr[i + 2] > 1.5) {
+        arr[i + 2] -= 42;
+        arr[i] = (Math.random() - 0.5) * 7;
+        arr[i + 1] = 0.3 + Math.random() * 3.2;
+      }
+    }
+    pa.needsUpdate = true;
+    this.streamMat.uniforms.uOp.value = (this.playing ? 0.45 : 0.2) + this.beat * 0.25;
     // nová doba → vlnka po podlaze
     if (this.beat > 0.8 && this.lastBeat <= 0.8) this.ripT = 0;
     this.lastBeat = this.beat;

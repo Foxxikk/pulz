@@ -1,6 +1,6 @@
 // Automatický hráč: ukázka na PC a testy. Generuje klouby pěstí a polohu hlavy.
 import * as THREE from 'three';
-import { GEO } from './config.js';
+import { GEO, BAR } from './config.js';
 import { fistJoints } from './hands.js';
 import { rng, clamp } from './util.js';
 
@@ -101,9 +101,13 @@ export class Bot {
       const r = Math.abs(it.tHit - t);
       if (r > 0.5) continue;
       const k = Math.cos((r / 0.5) * Math.PI * 0.5);
-      if (it.type === 'duck') hy = Math.min(hy, c.headH - (app.settings.barrierDrop + 0.18) * k);
-      else if (it.type === 'leanL') hx = Math.min(hx, c.cx - 0.3 * k);
-      else hx = Math.max(hx, c.cx + 0.3 * k);
+      // posun hlavy přes hranu bariéry (+ rezerva)
+      const b = BAR[it.type] || BAR.duck;
+      const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
+      const need = (c.cx - it.hit.x) * nx + (c.headH - it.hit.y) * ny + 0.12;
+      const tx = c.cx - nx * need * k, ty = c.headH - ny * need * k;
+      if (Math.abs(nx) > 0.1) hx = nx > 0 ? Math.min(hx, tx) : Math.max(hx, tx);
+      if (ny > 0.1) hy = Math.min(hy, ty);
     }
     this.head.set(hx, hy, c.cz);
   }
