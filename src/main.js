@@ -6,6 +6,7 @@ import { Env } from './env.js';
 import { Hands, J } from './hands.js';
 import { TargetPool } from './targets.js';
 import { FX } from './fx.js';
+import { Telegraph } from './telegraph.js';
 import { makePanels } from './ui.js';
 import { Game } from './game.js';
 import { Bot } from './bot.js';
@@ -71,6 +72,7 @@ class App {
     this.hands = new Hands(this.scene);
     this.targets = new TargetPool(this.scene);
     this.fx = new FX(this.scene);
+    this.telegraph = new Telegraph(this.scene);
     this.game = new Game(this);
     this.bot = new Bot(this);
     this.audio = null;
@@ -1710,6 +1712,8 @@ class App {
     if (this.screen === 'stats') this.panels.stats.refresh('s');
     if (this.screen === 'warmup') this.updateWarm(dt);
     this.updateGhosts(dt);
+    if (this.screen === 'play') this.telegraph.update(this.game, this.game.t, dt, this.settings.hints || 'full');
+    else this.telegraph.hide();
     if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.libKeypad ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.localSongs.length, this.customTrack ? this.customTrack.localId + this.customTrack.libUrl : ''].join('|'));
     if (this.screen === 'results' && this.endT != null) {
       this.endT -= dt;

@@ -5,7 +5,7 @@ import { clamp, rotY } from './util.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _v = new THREE.Vector3();
 const _qf = new THREE.Quaternion();
-const _e2 = new THREE.Vector3();
+const _e2 = new THREE.Vector3(), _sp = new THREE.Vector3();
 const _qWater = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 const C_L = new THREE.Color(COL.L), C_R = new THREE.Color(COL.R);
 
@@ -196,6 +196,24 @@ export class Game {
     return rotY(out, it.e.yaw || 0);
   }
 
+  // boční/výškový rozptyl místa, odkud objekt přilétá (deterministický podle indexu)
+  farOf(e, out) {
+    const r1 = Math.sin(e.i * 12.9898) * 43758.5453;
+    const rr = r1 - Math.floor(r1);
+    if (e.kind !== 't') return out.set((rr - 0.5) * 2, 0.8, 0);
+    if (e.type === 'bomb') return out.set((rr - 0.5) * 3, 0.6 + rr, 0);
+    const sgn = e.hand === 'L' ? -1 : 1;
+    return out.set(sgn * (1.2 + rr * 2.8), 0.4 + rr * 1.6, 0);
+  }
+
+  // kde se objekt objeví (pro náznak příletu)
+  spawnPoint(e, out) {
+    this.farOf(e, out);
+    out.z = -GEO.spawnDist;
+    if (e.kind === 't') rotY(out, e.yaw || 0);
+    return out.add(this.hitPos(e, _sp));
+  }
+
   spawn(e) {
     const it = {
       e,
@@ -223,15 +241,10 @@ export class Game {
       prevZ: -99,
     };
     // odkud přilétá: z dálky nad hladinou, rozprostřeno do stran
-    const r1 = Math.sin(e.i * 12.9898) * 43758.5453;
-    const rr = r1 - Math.floor(r1);
+    this.farOf(e, it.far);
     if (it.kind === 't') {
-      const sgn = e.hand === 'L' ? -1 : 1;
-      it.far.set(sgn * (1.2 + rr * 2.8), 0.4 + rr * 1.6, 0);
-      if (e.type === 'bomb') {
-        it.vis = this.app.targets.getBomb();
-        it.far.set((rr - 0.5) * 3, 0.6 + rr, 0);
-      } else it.vis = this.app.targets.get(e.hand, e.type);
+      if (e.type === 'bomb') it.vis = this.app.targets.getBomb();
+      else it.vis = this.app.targets.get(e.hand, e.type);
       it.vis.yaw = e.yaw || 0;
       if (e.small) it.vis.base = 0.72;
       // dvojitý terč: světelné spojení s partnerem
@@ -244,7 +257,6 @@ export class Game {
         }
       }
     } else {
-      it.far.set((rr - 0.5) * 2, 0.8, 0);
       it.vis = this.app.targets.getBarrier(e.type, barOf(e).ang);
     }
     this.posAt(it, this.t, it.pos);

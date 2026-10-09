@@ -17,6 +17,14 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10.5 – náznak příletu
+
+- Hra dopředu ukazuje, **odkud přiletí další terče a překážky**:
+  - **portál v dálce:** asi 1 s předem se přesně v místě, kde se objekt objeví, rozsvítí kruh v barvě ruky (modrá L, oranžová P, zlatá oběma rukama, jantarová překážka),
+  - **dráha po hladině:** ve směru příletu se rozsvítí pruh se šipkami tekoucími k tobě; příchody ze strany (15–30°) svítí výrazněji,
+  - **kompas na plošině:** výseč na okraji plošiny pod nohama, vidíš ji i koutkem oka.
+- V nastavení: **Náznak příletu: vše / jen záře / vyp.**
+
 ## Novinky v10.4 – uhlazení choreografie
 
 - Nahraná choreografie se při hraní automaticky **uhladí** (nahrávka sama zůstává beze změny):

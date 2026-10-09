@@ -217,8 +217,10 @@ export function makePanels(app) {
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
     smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);
     // přepínače
-    p.btn('barmode', 52, 422, 580, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: bez zdí', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 26, weight: 800, on: (S.barriers || 'all') !== 'all' });
-    p.btn('spatial', 648, 422, 580, 72, S.spatial !== false ? 'Hudba: prostorová' : 'Hudba: klasické stereo', { size: 26, weight: 800, on: S.spatial !== false });
+    p.btn('barmode', 52, 422, 380, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: bez zdí', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 24, weight: 800, on: (S.barriers || 'all') !== 'all' });
+    p.btn('spatial', 446, 422, 380, 72, S.spatial !== false ? 'Hudba: prostorová' : 'Hudba: stereo', { size: 24, weight: 800, on: S.spatial !== false });
+    const hn = S.hints || 'full';
+    p.btn('hints', 840, 422, 388, 72, { full: 'Náznak příletu: vše', light: 'Náznak příletu: jen záře', off: 'Náznak příletu: vyp.' }[hn], { size: 24, weight: 800, on: hn !== 'off' });
     const coach = S.coach || 'voice';
     p.btn('coach', 52, 506, 286, 72, { voice: 'Trenér: hlas', text: 'Trenér: jen text', off: 'Trenér: vyp.' }[coach], { size: 24, weight: 800, on: coach !== 'off' });
     p.btn('warmup', 346, 506, 286, 72, S.warmup !== false ? 'Rozcvička: ano' : 'Rozcvička: ne', { size: 24, weight: 800, on: S.warmup !== false });

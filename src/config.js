@@ -191,6 +191,7 @@ export const DEFAULT_SETTINGS = {
   coach: 'voice', // trenér: voice / text / off
   warmup: true, // rozcvička před tréninkem
   stretch: true, // protažení po tréninku
+  hints: 'full', // náznak příletu: full (záře + dráhy) / light (jen záře) / off
   choreoSmooth: 1, // uhlazení nahrané choreografie: 0 přesná, 1 uhlazená, 2 hodně uhlazená
   mode: 'train', // train / perfect (bez chyby) / endurance (vytrvalost)
 };
