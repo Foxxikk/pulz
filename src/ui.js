@@ -158,12 +158,12 @@ export function makePanels(app) {
       const on = S.track === t.id && (t.id !== 'custom' || app.customTrack);
       const recKey = (t.custom ? 'custom:' + t.name : t.id) + ':' + S.diff;
       const rec = app.records[recKey];
-      p.btn('track:' + t.id, x, y, 284, 168, '', { on, disabled: t.placeholder });
+      p.btn(t.placeholder ? 'library' : 'track:' + t.id, x, y, 284, 168, '', { on });
       const nm = t.name.length > 16 ? t.name.slice(0, 15) + '…' : t.name;
       text(g, nm, x + 20, y + 48, 34, { weight: 800, color: t.placeholder ? 'rgba(255,255,255,0.55)' : '#fff' });
       if (t.placeholder) {
-        text(g, 'Nahraj MP3 na stránce', x + 20, y + 94, 23, { color: '#9fd0ff', weight: 600 });
-        text(g, 'před vstupem do VR', x + 20, y + 130, 23, { color: 'rgba(255,255,255,0.5)', weight: 500 });
+        text(g, 'Knihovna skladeb', x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
+        text(g, 'vstup na PIN', x + 20, y + 130, 23, { color: 'rgba(255,255,255,0.5)', weight: 500 });
       } else {
         text(g, `${t.bpm} BPM · ${fmtTime(app.trackLen(t))}`, x + 20, y + 94, 24, { color: '#9fd0ff', weight: 700 });
         text(g, rec ? `Rekord ${fmtNum(rec.score)} · ${rec.grade}` : t.custom ? 'Vlastní skladba' : t.desc.split(',')[0], x + 20, y + 136, 23, { color: rec ? COL.goldCss : 'rgba(255,255,255,0.5)', weight: 600 });
@@ -186,15 +186,16 @@ export function makePanels(app) {
     p.btn('start', 852, 466, 376, 130, 'BOXOVAT', { primary: true, size: 58, weight: 900, sub: app.mode === 'vr' ? 'Start tréninku' : 'Ukázka – hraje bot' });
     // nastavení
     const sn = (k) => S.sens[k];
-    p.btn('settings', 52, 630, 1176, 120, 'Citlivost úderů a nastavení', {
+    p.btn('library', 928, 630, 300, 120, 'Knihovna', { size: 38, sub: app.libPin ? 'skladby' : 'na PIN' });
+    p.btn('settings', 52, 630, 860, 120, 'Citlivost úderů a nastavení', {
       size: 38,
-      sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone} · zkušební terče`,
+      sub: `Direkt ${sn('jab')} · Hook ${sn('hook')} · Zvedák ${sn('upper')} · Zóna ${S.zone}`,
     });
   }, { interactive: true });
 
-  P.settings = new Panel(1280, 900, 0.84, (g, p) => {
+  P.settings = new Panel(1280, 984, 0.84, (g, p) => {
     const S = app.settings;
-    glass(g, 1280, 900);
+    glass(g, 1280, 984);
     text(g, 'Citlivost a nastavení', 52, 90, 54, { weight: 900 });
     text(g, '1 = přísná · 5 = bere skoro každý pohyb', 1228, 86, 24, { align: 'right', color: 'rgba(255,255,255,0.6)', weight: 500 });
     const lv = (k) => `${S.sens[k]} · ${SENS[S.sens[k] - 1].name}`;
@@ -204,30 +205,31 @@ export function makePanels(app) {
     bigStepper(p, g, 'su', 640, 120, 'Zvedák', lv('upper'), sub('upper'));
     bigStepper(p, g, 'zone', 934, 120, 'Zóna zásahu', `${S.zone} · ${ZONE[S.zone - 1].name}`, `+${Math.round(ZONE[S.zone - 1].tol * 100)} cm`);
     smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
+    p.btn('barmode', 52, 422, 1176, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: jen podřep', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 30, weight: 800, on: (S.barriers || 'all') !== 'all' });
     smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
     smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);
     // poslední údery
-    roundRect(g, 52, 432, 700, 420, 24);
+    roundRect(g, 52, 516, 700, 420, 24);
     g.fillStyle = 'rgba(0,0,0,0.25)';
     g.fill();
-    text(g, 'Poslední údery', 76, 478, 30, { weight: 800 });
+    text(g, 'Poslední údery', 76, 562, 30, { weight: 800 });
     const at = (app.game.attempts || []).slice(0, 7);
-    if (!at.length) text(g, 'Zapni zkušební terče a zkus pár úderů.', 76, 530, 26, { color: 'rgba(255,255,255,0.55)', weight: 500 });
+    if (!at.length) text(g, 'Zapni zkušební terče a zkus pár úderů.', 76, 614, 26, { color: 'rgba(255,255,255,0.55)', weight: 500 });
     at.forEach((a, i) => {
-      const y = 528 + i * 46;
+      const y = 612 + i * 46;
       const ok = /zásah|perfekt|skvěl|dobré/.test(a.res);
       text(g, a.nm, 76, y, 26, { weight: 700 });
       text(g, a.spd ? `${a.spd.toFixed(1)} m/s` : '–', 330, y, 26, { color: '#9fd0ff', weight: 600 });
       text(g, a.res, 470, y, 26, { color: ok ? '#7dffb0' : '#ffb08a', weight: 600 });
     });
-    p.btn('practice', 780, 432, 448, 200, app.game.practiceMode ? 'Vypnout terče' : 'Zkušební terče', {
+    p.btn('practice', 780, 516, 448, 200, app.game.practiceMode ? 'Vypnout terče' : 'Zkušební terče', {
       primary: !app.game.practiceMode,
       size: 40,
       weight: 900,
       sub: app.game.practiceMode ? 'běží: direkt, hook, zvedák' : 'stojí před tebou, trefuj',
     });
-    p.btn('back', 780, 652, 448, 200, 'Zpět do menu', { size: 40, weight: 800 });
+    p.btn('back', 780, 736, 448, 200, 'Zpět do menu', { size: 40, weight: 800 });
   }, { interactive: true });
 
   function bigStepper(p, g, id, x, y, label, value, sub) {
@@ -250,6 +252,54 @@ export function makePanels(app) {
     p.btn(id + ':-', x + 6, y + 18, 60, 84, '−', { size: 46, r: 16 });
     p.btn(id + ':+', x + 220, y + 18, 60, 84, '+', { size: 46, r: 16 });
   }
+
+  // knihovna skladeb: PIN klávesnice → seznam skladeb ze serveru
+  P.lib = new Panel(1280, 984, 0.84, (g, p) => {
+    glass(g, 1280, 984);
+    text(g, 'Knihovna skladeb', 52, 92, 54, { weight: 900 });
+    if (app.libStatus) text(g, app.libStatus, 1228, 88, 26, { align: 'right', color: '#9fd0ff', weight: 600 });
+    if (!app.libPin) {
+      text(g, 'Zadej PIN', 640, 190, 34, { align: 'center', color: 'rgba(255,255,255,0.75)', weight: 600 });
+      const n = app.pinEntry.length;
+      for (let i = 0; i < 4; i++) {
+        g.beginPath();
+        g.arc(640 - 150 + i * 100, 260, 26, 0, Math.PI * 2);
+        g.fillStyle = i < n ? '#ffb24f' : 'rgba(255,255,255,0.12)';
+        g.fill();
+      }
+      const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+      keys.forEach((k, i) => {
+        const col = i % 3, row = Math.floor(i / 3);
+        const x = 640 - 330 + col * 224, y = 330 + row * 130;
+        p.btn('key:' + k, x, y, 210, 116, k === 'del' ? '←' : k === 'ok' ? 'OK' : k, { size: 56, weight: 800, primary: k === 'ok' });
+      });
+      p.btn('libback', 52, 870, 300, 90, 'Zpět', { size: 36, weight: 800 });
+      return;
+    }
+    const songs = app.libSongs;
+    if (!songs) text(g, 'Načítám seznam…', 640, 300, 34, { align: 'center', color: 'rgba(255,255,255,0.7)', weight: 600 });
+    else if (!songs.length) {
+      text(g, 'Knihovna je zatím prázdná.', 640, 280, 36, { align: 'center', weight: 700 });
+      text(g, 'Skladby nahraješ na stránce mimo VR: tlačítko „Knihovna (PIN)“.', 640, 336, 26, { align: 'center', color: 'rgba(255,255,255,0.65)', weight: 500 });
+    } else {
+      const per = 6;
+      const pages = Math.max(1, Math.ceil(songs.length / per));
+      const pg = Math.min(app.libPage, pages - 1);
+      songs.slice(pg * per, pg * per + per).forEach((sng, i) => {
+        const idx = pg * per + i;
+        const cur = app.customTrack && app.customTrack.libUrl === sng.url;
+        const nm = sng.name.length > 46 ? sng.name.slice(0, 45) + '…' : sng.name;
+        p.btn('lib:' + idx, 52, 130 + i * 116, 1176, 104, nm, { size: 36, weight: 700, on: cur, sub: cur ? 'vybráno' : `${(sng.size / 1048576).toFixed(1)} MB` });
+      });
+      if (pages > 1) {
+        p.btn('libpg:-', 380, 870, 160, 90, '‹', { size: 56, disabled: pg === 0 });
+        text(g, `${pg + 1} / ${pages}`, 640, 928, 32, { align: 'center', weight: 700 });
+        p.btn('libpg:+', 740, 870, 160, 90, '›', { size: 56, disabled: pg >= pages - 1 });
+      }
+    }
+    p.btn('libback', 52, 870, 300, 90, 'Zpět', { size: 36, weight: 800 });
+    p.btn('liblock', 928, 870, 300, 90, 'Zamknout', { size: 32, weight: 700 });
+  }, { interactive: true });
 
   P.calib = new Panel(1024, 420, 0.78, (g) => {
     glass(g, 1024, 420);
@@ -290,49 +340,103 @@ export function makePanels(app) {
     g.fillText(s, 512, 210);
   }, { depthTest: false, order: 30 });
 
+  // HUD: čas, skóre (počítá nahoru), kalorie, průběh skladby
   P.info = new Panel(640, 300, 0.44, (g) => {
     const gm = app.game;
+    const pulse = app.beatPulse || 0;
     roundRect(g, 6, 6, 628, 288, 40);
-    g.fillStyle = 'rgba(14,26,44,0.72)';
+    const bg = g.createLinearGradient(0, 0, 640, 300);
+    bg.addColorStop(0, 'rgba(18,32,58,0.82)');
+    bg.addColorStop(1, 'rgba(8,16,30,0.78)');
+    g.fillStyle = bg;
     g.fill();
     g.lineWidth = 3;
-    g.strokeStyle = 'rgba(160,210,255,0.35)';
+    g.strokeStyle = `rgba(160,210,255,${0.3 + pulse * 0.35})`;
     g.stroke();
+    text(g, 'SKÓRE', 40, 58, 24, { weight: 800, color: 'rgba(160,210,255,0.75)' });
+    const sc = fmtNum(Math.round(app.dispScore || 0));
+    g.save();
+    g.shadowColor = 'rgba(120,190,255,0.8)';
+    g.shadowBlur = 18;
+    text(g, sc, 40, 138, 84, { weight: 900 });
+    g.restore();
     const rem = Math.max(0, gm.duration - gm.t);
-    text(g, fmtTime(rem), 40, 118, 92, { weight: 800 });
-    text(g, `${Math.round(gm.kcal)} kcal`, 40, 186, 46, { weight: 700, color: '#ffd9a8' });
-    text(g, `${fmtNum(gm.score)} b.`, 40, 252, 40, { weight: 600, color: '#bfe0ff' });
-    // kruh průběhu
+    text(g, fmtTime(rem), 40, 206, 40, { weight: 700 });
+    text(g, `${Math.round(gm.kcal)} kcal`, 600, 206, 40, { weight: 700, color: '#ffd9a8', align: 'right' });
+    // průběh skladby
     const k = gm.duration ? Math.min(1, gm.t / gm.duration) : 0;
-    g.lineWidth = 22;
-    g.strokeStyle = 'rgba(255,255,255,0.12)';
-    g.beginPath();
-    g.arc(500, 150, 86, 0, Math.PI * 2);
-    g.stroke();
-    g.strokeStyle = '#5ee39a';
-    g.lineCap = 'round';
-    g.beginPath();
-    g.arc(500, 150, 86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k);
-    g.stroke();
-    g.lineCap = 'butt';
-    text(g, `×${gm.mult}`, 500, 166, 54, { align: 'center', weight: 900, color: gm.mult > 1 ? COL.goldCss : '#fff' });
-    if (app.settings.showFps) text(g, `${app.fps} FPS`, 600, 270, 22, { align: 'right', color: 'rgba(255,255,255,0.5)' });
+    roundRect(g, 40, 236, 560, 18, 9);
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.fill();
+    roundRect(g, 40, 236, Math.max(18, 560 * k), 18, 9);
+    const gr = g.createLinearGradient(40, 0, 600, 0);
+    gr.addColorStop(0, COL.Lcss);
+    gr.addColorStop(1, COL.Rcss);
+    g.fillStyle = gr;
+    g.fill();
+    // přesnost vpravo nahoře
+    const tot = gm.hits + gm.misses;
+    if (tot > 0) text(g, `${Math.round((gm.hits / tot) * 100)} %`, 600, 58, 30, { weight: 800, align: 'right', color: '#7dffb0' });
+    if (app.settings.showFps) text(g, `${app.fps} FPS`, 600, 284, 18, { align: 'right', color: 'rgba(255,255,255,0.5)' });
   });
 
-  P.combo = new Panel(512, 256, 1.5, (g) => {
+  // combo + násobič s ukazatelem do dalšího stupně
+  P.combo = new Panel(640, 300, 1.7, (g) => {
     const gm = app.game;
     if (gm.combo < 2) return;
+    const steps = [0, 10, 25, 50];
+    const m = gm.mult;
+    const lo = steps[m - 1], hi = steps[m] ?? null;
+    const prog = hi ? (gm.combo - lo) / (hi - lo) : 1;
+    const gold = m > 1;
+    const cx = 150, cy = 150;
+    // násobič v kruhu
+    g.beginPath();
+    g.arc(cx, cy, 112, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(10,20,40,0.55)';
+    g.fill();
+    g.lineWidth = 18;
+    g.strokeStyle = 'rgba(255,255,255,0.14)';
+    g.beginPath();
+    g.arc(cx, cy, 112, 0, Math.PI * 2);
+    g.stroke();
+    g.save();
+    g.lineCap = 'round';
+    g.shadowColor = gold ? COL.goldCss : '#7fc8ff';
+    g.shadowBlur = 24;
+    g.strokeStyle = gold ? COL.goldCss : '#7fc8ff';
+    g.beginPath();
+    g.arc(cx, cy, 112, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, prog));
+    g.stroke();
+    g.restore();
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = `900 160px ${FONT}`;
+    g.font = `900 104px ${FONT}`;
+    g.fillStyle = gold ? COL.goldCss : '#ffffff';
+    g.fillText('×' + m, cx, cy + 4);
+    // počet
+    g.textAlign = 'left';
+    g.font = `900 150px ${FONT}`;
     g.lineWidth = 10;
-    g.strokeStyle = 'rgba(10,25,45,0.45)';
-    g.strokeText(String(gm.combo), 256, 104);
-    g.fillStyle = '#ffffff';
-    g.fillText(String(gm.combo), 256, 104);
-    g.font = `800 42px ${FONT}`;
-    g.fillStyle = gm.mult > 1 ? COL.goldCss : 'rgba(255,255,255,0.9)';
-    g.fillText(gm.mult > 1 ? `COMBO ×${gm.mult}` : 'COMBO', 256, 214);
+    g.strokeStyle = 'rgba(10,25,45,0.5)';
+    g.strokeText(String(gm.combo), 296, 130);
+    const tg = g.createLinearGradient(0, 60, 0, 200);
+    tg.addColorStop(0, '#ffffff');
+    tg.addColorStop(1, gold ? '#ffe39a' : '#bfe4ff');
+    g.fillStyle = tg;
+    g.fillText(String(gm.combo), 296, 130);
+    g.font = `800 40px ${FONT}`;
+    g.fillStyle = 'rgba(255,255,255,0.9)';
+    g.fillText('COMBO', 300, 228);
+    if (hi) {
+      g.font = `600 26px ${FONT}`;
+      g.fillStyle = 'rgba(255,255,255,0.6)';
+      g.fillText(`×${m + 1} za ${hi - gm.combo}`, 300, 272);
+    } else {
+      g.font = `800 26px ${FONT}`;
+      g.fillStyle = COL.goldCss;
+      g.fillText('MAXIMUM!', 300, 272);
+    }
   }, { order: 8, mips: true });
 
   P.pause = new Panel(1024, 640, 0.7, (g, p) => {
@@ -380,15 +484,33 @@ export function makePanels(app) {
     ];
     stats.forEach(([k, v], i) => {
       const col = i % 4, row = Math.floor(i / 4);
-      const x = 60 + col * 292, y = 290 + row * 170;
-      roundRect(g, x, y - 66, 272, 150, 24);
+      const x = 60 + col * 292, y = 284 + row * 150;
+      roundRect(g, x, y - 62, 272, 136, 24);
       g.fillStyle = 'rgba(255,255,255,0.06)';
       g.fill();
       text(g, k, x + 24, y - 20, 26, { color: 'rgba(255,255,255,0.6)', weight: 600 });
       text(g, v, x + 24, y + 48, 54, { weight: 800 });
     });
-    p.btn('again', 60, 640, 560, 130, 'Znovu', { primary: true, size: 52, weight: 900 });
-    p.btn('menu', 660, 640, 560, 130, 'Menu', { size: 46, weight: 800 });
+    // rozložení zásahů: perfektní / skvělé / dobré / minuté
+    const parts = [[r.perfect || 0, COL.goldCss, 'perfektní'], [r.great || 0, '#7fc8ff', 'skvělé'], [r.good || 0, '#9be7b8', 'dobré'], [r.misses || 0, 'rgba(255,120,110,0.85)', 'minuté']];
+    const tot = parts.reduce((a, b) => a + b[0], 0) || 1;
+    let x0 = 60;
+    parts.forEach(([n, c], i) => {
+      const w = (1176 * n) / tot;
+      if (w < 1) return;
+      g.fillStyle = c;
+      g.fillRect(x0, 556, w, 22);
+      x0 += w;
+    });
+    parts.forEach(([n, c, l], i) => {
+      g.fillStyle = c;
+      g.beginPath();
+      g.arc(72 + i * 292, 606, 9, 0, Math.PI * 2);
+      g.fill();
+      text(g, `${l} ${n}`, 90 + i * 292, 614, 24, { weight: 600, color: 'rgba(255,255,255,0.8)' });
+    });
+    p.btn('again', 60, 650, 560, 130, 'Znovu', { primary: true, size: 52, weight: 900 });
+    p.btn('menu', 660, 650, 560, 130, 'Menu', { size: 46, weight: 800 });
   }, { interactive: true });
 
   P.hint = new Panel(1024, 200, 0.62, (g) => {

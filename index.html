@@ -23,6 +23,21 @@
   .sec{background:rgba(61,143,255,.28)}
   #custom-status{font-size:14px;color:#9fd0ff;flex-basis:100%;max-width:720px}
   #note{font-size:14px;opacity:.75;flex-basis:100%;max-width:720px}
+  .lib{background:linear-gradient(135deg,#7b5cff,#3d8fff)}
+  #lib{position:fixed;left:50%;top:84px;transform:translateX(-50%);width:min(560px,calc(100% - 32px));max-height:calc(100% - 110px);overflow:auto;
+    background:rgba(10,20,38,.95);border:1px solid rgba(160,210,255,.25);border-radius:18px;padding:16px;box-sizing:border-box;z-index:5;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #lib[hidden],#lib [hidden]{display:none}
+  .lib-head{display:flex;justify-content:space-between;align-items:center;font-size:20px;margin-bottom:12px}
+  .lib-head button{background:rgba(255,255,255,.1);padding:6px 12px}
+  #lib-pinform{display:flex;gap:10px;align-items:center}
+  #lib-pin{flex:1;min-width:0;font:inherit;font-size:22px;letter-spacing:6px;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff}
+  .go{background:linear-gradient(135deg,#ff9a2e,#ff6a2b)}
+  .lib-tools{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .lib-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-top:1px solid rgba(255,255,255,.08)}
+  .lib-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lib-row button{padding:8px 12px;font-size:14px}
+  .del{background:rgba(255,90,80,.25)}
+  #lib-status{margin-top:10px;font-size:14px;color:#9fd0ff;min-height:1em}
   #fps{position:fixed;right:12px;bottom:10px;font-size:12px;opacity:.6}
 </style>
 </head>
@@ -34,10 +49,28 @@
   <button id="btn-demo">Ukázka na PC</button>
   <button id="btn-song" class="sec">Nahrát skladbu (MP3)</button>
   <button id="btn-video" class="sec">Nahrát 360° video</button>
+  <button id="btn-lib" class="lib">Knihovna (PIN)</button>
   <input id="file-song" type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav" hidden>
   <input id="file-video" type="file" accept="video/*,.mp4,.webm" hidden>
   <div id="custom-status"></div>
-  <div id="note">Nasaď Quest 3, odlož ovladače a boxuj rukama. Vlastní skladbu (MP3) nebo 360° video nahraj ještě před vstupem do VR – zůstanou uložené jen v tomto zařízení.</div>
+  <div id="note">Nasaď Quest 3, odlož ovladače a boxuj rukama. Skladbu vyber z knihovny (PIN) nebo nahraj vlastní MP3 / 360° video ještě před vstupem do VR – knihovnu najdeš i v menu ve VR.</div>
+</div>
+<div id="lib" hidden>
+  <div class="lib-head"><b>Knihovna skladeb</b><button id="lib-close" aria-label="Zavřít">✕</button></div>
+  <form id="lib-pinform" autocomplete="off">
+    <label for="lib-pin">PIN</label>
+    <input id="lib-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off">
+    <button type="submit" class="go">Odemknout</button>
+  </form>
+  <div id="lib-main" hidden>
+    <div class="lib-tools">
+      <button id="lib-upload" class="go">Nahrát skladby (MP3)</button>
+      <button id="lib-lock" class="sec">Zamknout</button>
+      <input id="lib-file" type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav" multiple hidden>
+    </div>
+    <div id="lib-list"></div>
+  </div>
+  <div id="lib-status"></div>
 </div>
 <div id="fps"></div>
 <script type="importmap">

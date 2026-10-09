@@ -12,7 +12,7 @@ function db() {
     r.onerror = () => rej(r.error);
   });
 }
-async function put(key, val) {
+export async function put(key, val) {
   const d = await db();
   return new Promise((res, rej) => {
     const tx = d.transaction(STORE, 'readwrite');
@@ -21,7 +21,7 @@ async function put(key, val) {
     tx.onerror = () => rej(tx.error);
   });
 }
-async function get(key) {
+export async function get(key) {
   const d = await db();
   return new Promise((res, rej) => {
     const tx = d.transaction(STORE, 'readonly');
@@ -81,9 +81,9 @@ export async function makeTrack(name, arrayBuffer, onStatus, cachedAn) {
   };
 }
 
-export async function saveCustom(name, arrayBuffer, an) {
+export async function saveCustom(name, arrayBuffer, an, libUrl) {
   try {
-    await put('custom', { name, data: arrayBuffer, an });
+    await put('custom', { name, data: arrayBuffer, an, libUrl: libUrl || null });
   } catch (e) {
     console.warn('Uložení skladby se nepovedlo', e);
   }

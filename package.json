@@ -1,0 +1,9 @@
+{
+  "name": "pulz",
+  "private": true,
+  "type": "module",
+  "description": "PULZ – rytmická boxovací VR hra (WebXR). Statické soubory + malé API pro knihovnu skladeb.",
+  "dependencies": {
+    "@vercel/blob": "2.7.0"
+  }
+}

@@ -108,11 +108,12 @@ export const GEO = {
   fistR: 0.06, // poloměr pěsti
   tol: 0.04, // tolerance zásahu
   spawnDist: 26, // jak daleko se terč objeví
-  finalFrac: 0.15, // podíl rychlosti na konci letu (terč „doplachtí“)
+  finalFrac: 0.4, // podíl rychlosti na konci letu (terč přilétá svižně, úder je čitelný)
   // pozice úderů vůči hlavě (pravá ruka; levá zrcadlově)
   jab: { x: 0.17, dy: -0.22, dir: [0, 0, -1] },
   hook: { x: 0.1, dy: -0.15, dir: [-1, 0, 0] },
   upper: { x: 0.13, dy: -0.33, dir: [0, 1, 0] },
+  finale: { x: 0, dy: -0.2, dir: [0, 0, -1] },
 };
 
 export const JUDGE = { perfect: 0.06, great: 0.12, late: 0.22 };
@@ -133,7 +134,7 @@ export const ZONE = [
   { name: 'Větší', tol: 0.09, squash: 1.15 },
   { name: 'Velká', tol: 0.13, squash: 1.0 },
 ];
-export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' };
+export const PUNCH_NAMES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák', finale: 'Finále' };
 
 // Prostředí: 360° fotky (Poly Haven, CC0) – načítají se za běhu přes /pano/ (rewrite ve vercel.json)
 // Zvuky přírody: Wikimedia Commons – „Forest lawn creek“ (Dsw, volné dílo), „Vojníkov, 3. jez“ (Juandev, volné dílo),
@@ -160,6 +161,7 @@ export const DEFAULT_SETTINGS = {
   track: 'mesto',
   diff: 'mid',
   power: 'norm',
+  barriers: 'all', // all | duck | off
   barrierDrop: 0.17, // o kolik níž než hlava je spodní hrana bariéry
   weight: 75,
   audioOffset: 0, // ms

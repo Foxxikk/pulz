@@ -170,6 +170,7 @@ export class FX {
       ouch: ['AU!', '#ff5a5a'],
       dir: ['JINÝ SMĚR', '#ffb0b0'],
       close: ['TĚSNĚ VEDLE', '#ffd0a0'],
+      finale: ['FINÁLE!', '#ffd54a'],
     };
     for (const [k, [txt, c]] of Object.entries(defs)) this.labels[k] = textTexture(txt, c).tex;
     this.texts = [];
@@ -250,7 +251,7 @@ export class FX {
     this.flashColor = color;
     this.flashT = 1;
     // úlomky
-    const nd = Math.round((18 + power * 10 + (big ? 6 : 0)) * Math.min(1, d + 0.3));
+    const nd = Math.round((8 + power * 6 + (big ? 4 : 0)) * Math.min(1, d + 0.3));
     for (let i = 0; i < nd; i++) {
       const idx = this.di;
       const o = this.deb[idx];

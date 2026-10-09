@@ -119,6 +119,27 @@ export function analyze(mono, onProgress) {
   const lavg = movingAvg(low, Math.round(fps * 0.5));
   const lowOn = new Float32Array(frames);
   for (let i = 0; i < frames; i++) lowOn[i] = Math.max(0, low[i] - lavg[i]);
+  let lmx = 1e-9;
+  for (let i = 0; i < frames; i++) lmx = Math.max(lmx, lowOn[i]);
+
+  // ---- jednotlivé údery v hudbě (vrcholy onsetu nad adaptivním prahem) ----
+  const thr = movingAvg(onset, Math.round(fps * 1.0));
+  const onsets = [];
+  const minGap = Math.round(fps * 0.06);
+  let lastI = -999;
+  for (let i = 1; i < frames - 1; i++) {
+    const v = onset[i];
+    if (v < onset[i - 1] || v < onset[i + 1]) continue;
+    if (v < thr[i] * 1.4 + 0.03) continue;
+    if (i - lastI < minGap) {
+      if (onsets.length && v > onsets[onsets.length - 1].s) onsets.pop();
+      else continue;
+    }
+    let lo = 0;
+    for (let k = i - 2; k <= i + 2; k++) if (k >= 0 && k < frames) lo = Math.max(lo, lowOn[k] / lmx);
+    onsets.push({ t: (i * HOP + N / 2) / SR + 0.025, s: v, low: lo });
+    lastI = i;
+  }
 
   // ---- tempo: autokorelace + preference okolo 120 BPM ----
   const minLag = Math.round((fps * 60) / 180), maxLag = Math.round((fps * 60) / 70);
@@ -210,7 +231,7 @@ export function analyze(mono, onProgress) {
   });
   if (onProgress) onProgress(0.95);
   const bpm = (60 * fps) / period;
-  return { bpm, beats, phase, beatE, beatOn, halfOn, duration: mono.length / SR };
+  return { bpm, beats, phase, beatE, beatOn, halfOn, onsets, duration: mono.length / SR };
 }
 
 // Fráze po 2 taktech → typ sekce podle energie

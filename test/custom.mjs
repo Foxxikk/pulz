@@ -24,11 +24,15 @@ const r = await page.evaluate(async () => {
   const out = {};
   for (const d of ['easy', 'mid', 'hard']) {
     const chart = buildChartFromAnalysis(tr.an, tr.phrases, d, tr.seed);
-    app.game.start(chart, tr, d, app.calibData); app.screen = 'play'; app.demo = true; app.bot.reset();
+    window.__mi = []; if (!app.game.__m) { const m0 = app.game.miss.bind(app.game); app.game.miss = (it) => { window.__mi.push([it.type, it.side, it.tHit.toFixed(2), (it.near*100).toFixed(1), it.nearSpd.toFixed(2), JSON.stringify(it.hit.toArray().map(v=>+v.toFixed(2)))]); return m0(it); }; app.game.__m = 1; }
+    app.game.start(chart, tr, d, app.calibData); app.screen = 'play'; app.demo = true; app.bot.reset(); app.bot.jitter = 0.025;
     const dt = 1 / 72;
     for (let t = 0; t < chart.duration + 2 && app.game.running; t += dt) { app.hands.begin(); app.bot.update(t, dt); app.hands.end(t, dt, app.bot.head); app.game.update(t, dt, app.hands, app.bot.head); }
     const g = app.game;
-    out[d] = { targets: chart.targets, hits: g.hits, misses: g.misses, barriers: g.barriersOk + '/' + (g.barriersOk + g.barriersHit) };
+    const hitI = new Set(g.log.filter((l) => l.err != null).map((l) => l.i));
+    const ev = g.events.filter((e) => e.kind === 't');
+    const missed = ev.filter((e) => !hitI.has(e.i)).slice(0, 6).map((e) => { const prev = ev.filter((x) => x.hand === e.hand && x.t < e.t).pop(); const other = ev.filter((x) => x.hand !== e.hand && x.t < e.t).pop(); return [e.type, e.hand, e.t.toFixed(2), prev ? (e.t - prev.t).toFixed(2) : '-', other ? (e.t - other.t).toFixed(2) : '-']; });
+    out[d] = { targets: chart.targets, hits: g.hits, misses: g.misses, barriers: g.barriersOk + '/' + (g.barriersOk + g.barriersHit), missed: window.__mi.slice(0,5) };
     app.screen = 'menu';
   }
   return out;

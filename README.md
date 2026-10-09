@@ -3,8 +3,8 @@
 Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrkysové řeky a pěstmi rozbíjíš terče, které letí v rytmu hudby. **Hraje se jen rukama** (hand tracking) – bez ovladačů.
 
 - **Modrý terč = levá ruka, oranžový = pravá.**
-- Bílé závorky kolem terče se svírají – když se dotknou terče, je čas udeřit.
-- Křídlo na boku = **hook** (úder zboku), křídlo dole = **zvedák**, čistý disk = **direkt**.
+- Terč je 3D disk ze šesti dílů – po zásahu se rozletí na kusy.
+- Bílé křídlo na boku = **hook** (úder zboku), křídlo dole = **zvedák**, čistý disk = **direkt**. Velký zlatý terč na konci = **finále** (libovolnou rukou).
 - Oranžový průsvitný „měsíc“: plochá hrana vodorovně = **podřep**, svisle = **úklon** na druhou stranu.
 - Combo násobí body (×2 od 10, ×3 od 25, ×4 od 50), na konci známka S–D, rekordy, odhad kalorií.
 
@@ -15,6 +15,14 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 4. Pauza: podrž pravý ukazováček na tlačítku na levém zápěstí (nebo otevři menu Questu).
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
+
+## Novinky v4
+- **Létající 3D terče jako ve FunFitLandu**: tmavý zkosený disk složený ze šesti výsečí, spáry svítí barvou ruky, uprostřed ikona. Po zásahu se výseče rozletí do stran i ve směru úderu, k tomu jiskry a záblesk.
+- **Rytmus vlastní skladby**: terče už nestojí na pravidelné mřížce, ale na skutečných úderech v hudbě (bicí, akcenty) zarovnaných na doby a půldoby. Silné akcenty = hook/zvedák, hustota podle části skladby. Na skladbě Believer: 96 % terčů přesně na úderu v hudbě (průměrná odchylka 14 ms, dřív 36 ms), na nejsilnějších úderech 33–46 % (dřív ~20 %). Terč navíc přilétá svižněji, takže okamžik úderu je zřetelný.
+- **Bariéry bez „spirál“**: mezi bariérami minimálně 2 takty, úklon nikdy hned po úklonu. V nastavení přepínač **Bariéry: všechny / jen podřep / vypnuté**.
+- **Finále**: na konci každé skladby přiletí velký zlatý terč – po zásahu ohňostroj a konec tréninku.
+- **Nové HUD**: skóre se načítá, ukazatel přesnosti a průběhu skladby, combo s násobičem v kruhu a ukazatelem „×3 za 7“, vše jemně pulzuje do rytmu hudby. Ve výsledcích pruh perfektní/skvělé/dobré/minuté.
+- **Knihovna skladeb na PIN**: tlačítko „Knihovna (PIN)“ na stránce i v menu ve VR (klávesnice). PIN ověřuje server (výchozí 4321, změna proměnnou `PULZ_PIN` ve Vercelu). Skladby se nahrávají do Vercel Blob jen se správným PINem; stažená skladba a její analýza se uloží v zařízení, podruhé se už nestahuje.
 
 ## Novinky v3
 - **3D létající objekty**: broušené energetické krystaly, které se za letu převalují, uvnitř svítí a odrážejí okolí. Žádné kruhy ani závorky – směr hooku a zvedáku ukazuje 3D šipka. Po úderu se krystal roztříští na barevné střepy, které osvítí záblesk.

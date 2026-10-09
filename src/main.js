@@ -11,6 +11,7 @@ import { Game } from './game.js';
 import { Bot } from './bot.js';
 import { AudioSys } from './audio.js';
 import { buildChart, buildChartFromAnalysis } from './chart.js';
+import { savedPin, rememberPin, listSongs, uploadSong, deleteSong, fetchSong, cacheSong } from './library.js';
 import { store, clamp, track as va } from './util.js';
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _fwd = new THREE.Vector3();
@@ -31,6 +32,15 @@ class App {
     this.musicProgress = 0;
     this.hurt = 0;
     this.comboPop = 0;
+    this.libPin = savedPin();
+    this.libSongs = null;
+    this.libStatus = '';
+    this.libPage = 0;
+    this.pinEntry = '';
+    this.comboBump = 0;
+    this.lastComboShown = 0;
+    this.dispScore = 0;
+    this.beatPulse = 0;
     this.bigText = '';
     this.hint = '';
     this.calibData = null;
@@ -159,6 +169,7 @@ class App {
       if (rec && rec.data) {
         this.songStatus = 'Načítám vlastní skladbu…';
         this.customTrack = await makeTrack(rec.name, rec.data, (m) => (this.songStatus = m), rec.an);
+        this.customTrack.libUrl = rec.libUrl || null;
         this.songStatus = '';
         this.updateDomStatus();
       }
@@ -211,6 +222,180 @@ class App {
     this.saveSettings();
     this.loadEnv();
     this.updateDomStatus();
+  }
+
+  // ---------- knihovna skladeb (PIN) ----------
+  async libRefresh() {
+    if (!this.libPin) return;
+    this.libStatus = '';
+    try {
+      this.libSongs = await listSongs(this.libPin);
+    } catch (e) {
+      if (e.code === 'pin') {
+        this.libPin = '';
+        rememberPin('');
+        this.libStatus = 'Špatný PIN';
+      } else this.libStatus = e.message;
+      this.libSongs = this.libPin ? [] : null;
+    }
+    this.renderDomLib();
+  }
+
+  async libTryPin(pin) {
+    this.libPin = pin;
+    this.libSongs = null;
+    await this.libRefresh();
+    if (this.libPin) rememberPin(pin);
+    return !!this.libPin;
+  }
+
+  libLock() {
+    this.libPin = '';
+    this.libSongs = null;
+    this.pinEntry = '';
+    rememberPin('');
+    this.renderDomLib();
+  }
+
+  async libSelect(song) {
+    if (this.libBusy) return;
+    this.libBusy = true;
+    const st = (m) => {
+      this.songStatus = m;
+      this.libStatus = m;
+      this.updateDomStatus();
+      this.renderDomLib();
+    };
+    try {
+      st('Stahuji ' + song.name + '…');
+      const c = await fetchSong(song.url, (k) => st(`Stahuji ${song.name}… ${Math.round(k * 100)} %`));
+      const t = await makeTrack(song.name, c.data, st, c.an);
+      t.libUrl = song.url;
+      if (!c.an) await cacheSong(song.url, c.data, t.an);
+      this.customTrack = t;
+      this.settings.track = 'custom';
+      this.saveSettings();
+      await saveCustom(song.name, c.data, t.an, song.url);
+      st('');
+      this.libStatus = 'Vybráno: ' + t.name;
+      va('library_song', { bpm: t.bpm });
+    } catch (e) {
+      console.error(e);
+      st('');
+      this.libStatus = 'Skladbu se nepodařilo načíst';
+    }
+    this.libBusy = false;
+    this.updateDomStatus();
+    this.renderDomLib();
+  }
+
+  showLibrary() {
+    this.screen = 'library';
+    this.hideAll();
+    const p = this.panels.lib;
+    p.mesh.visible = true;
+    this.pinEntry = '';
+    if (this.mode === 'vr') this.placePanel(p, 0.55, -0.28, 0.42);
+    else {
+      p.mesh.position.set(0, 1.42, -0.62);
+      p.mesh.lookAt(this.camera.position);
+    }
+    if (this.libPin && !this.libSongs) this.libRefresh();
+  }
+
+  // DOM okno knihovny (PC / prohlížeč na Questu před vstupem do VR)
+  initDomLib() {
+    const box = document.getElementById('lib');
+    if (!box) return;
+    this.dom.lib = box;
+    document.getElementById('btn-lib').addEventListener('click', () => {
+      this.ensureAudio();
+      box.hidden = !box.hidden;
+      if (!box.hidden && this.libPin && !this.libSongs) this.libRefresh();
+      this.renderDomLib();
+    });
+    document.getElementById('lib-close').addEventListener('click', () => (box.hidden = true));
+    document.getElementById('lib-pinform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const inp = document.getElementById('lib-pin');
+      const ok = await this.libTryPin(inp.value.trim());
+      inp.value = '';
+      if (!ok) this.libStatus = 'Špatný PIN';
+      this.renderDomLib();
+    });
+    document.getElementById('lib-lock').addEventListener('click', () => this.libLock());
+    const fu = document.getElementById('lib-file');
+    document.getElementById('lib-upload').addEventListener('click', () => fu.click());
+    fu.addEventListener('change', async () => {
+      const files = [...fu.files];
+      fu.value = '';
+      for (const f of files) {
+        try {
+          await uploadSong(this.libPin, f, (k) => {
+            this.libStatus = `Nahrávám ${f.name}… ${Math.round(k * 100)} %`;
+            this.renderDomLib();
+          });
+        } catch (e) {
+          console.error(e);
+          this.libStatus = 'Nahrání se nepovedlo: ' + (e.message || e);
+          this.renderDomLib();
+          return;
+        }
+      }
+      this.libStatus = files.length ? 'Nahráno ✓' : '';
+      await this.libRefresh();
+    });
+  }
+
+  renderDomLib() {
+    const box = this.dom && this.dom.lib;
+    if (!box) return;
+    const unlocked = !!this.libPin;
+    document.getElementById('lib-pinform').hidden = unlocked;
+    document.getElementById('lib-main').hidden = !unlocked;
+    document.getElementById('lib-status').textContent = this.libStatus || '';
+    const ul = document.getElementById('lib-list');
+    ul.textContent = '';
+    if (!unlocked) return;
+    const songs = this.libSongs;
+    if (!songs) {
+      ul.textContent = 'Načítám…';
+      return;
+    }
+    if (!songs.length) {
+      ul.textContent = 'Knihovna je prázdná – nahraj první skladbu.';
+      return;
+    }
+    songs.forEach((sng) => {
+      const li = document.createElement('div');
+      li.className = 'lib-row';
+      const cur = this.customTrack && this.customTrack.libUrl === sng.url;
+      const nm = document.createElement('span');
+      nm.textContent = sng.name + (cur ? '  ✓' : '');
+      const sel = document.createElement('button');
+      sel.textContent = cur ? 'Vybráno' : 'Vybrat';
+      sel.className = 'sec';
+      sel.disabled = !!this.libBusy;
+      sel.addEventListener('click', () => this.libSelect(sng));
+      const del = document.createElement('button');
+      del.textContent = 'Smazat';
+      del.className = 'del';
+      del.addEventListener('click', async () => {
+        if (del.dataset.armed !== '1') {
+          del.dataset.armed = '1';
+          del.textContent = 'Opravdu?';
+          return;
+        }
+        try {
+          await deleteSong(this.libPin, sng.url);
+        } catch (e) {
+          this.libStatus = e.message;
+        }
+        await this.libRefresh();
+      });
+      li.append(nm, sel, del);
+      ul.append(li);
+    });
   }
 
   updateDomStatus() {
@@ -306,6 +491,7 @@ class App {
       fv.click();
     });
     fs.addEventListener('change', () => this.onSongFile(fs.files[0]));
+    this.initDomLib();
     fv.addEventListener('change', () => this.onVideoFile(fv.files[0]));
     this.updateDomStatus();
     this.dom.vr.addEventListener('click', () => this.enterVR());
@@ -585,8 +771,31 @@ class App {
     this.setupHud();
   }
 
+  // puls na dobu hudby: 1 přesně na dobu, pak rychle klesá
+  beatPulseAt(t) {
+    const tr = this.game.track;
+    let ph;
+    const beats = tr && tr.custom && tr.an && tr.an.beats;
+    if (beats && beats.length) {
+      let lo = 0, hi = beats.length - 1;
+      if (t < beats[0]) return 0;
+      while (lo < hi) {
+        const m = (lo + hi + 1) >> 1;
+        if (beats[m] <= t) lo = m;
+        else hi = m - 1;
+      }
+      ph = t - beats[lo];
+    } else {
+      if (!this.spb || t < 0) return 0;
+      ph = t % this.spb;
+    }
+    return Math.exp(-ph * 9);
+  }
+
   setupHud() {
     const c = this.calibData;
+    this.dispScore = 0;
+    this.lastComboShown = 0;
     // HUD
     const info = this.panels.info;
     info.mesh.visible = true;
@@ -594,7 +803,7 @@ class App {
     info.mesh.lookAt(c.cx, c.headH, c.cz);
     const combo = this.panels.combo;
     combo.mesh.visible = true;
-    combo.mesh.position.set(c.cx + 1.7, c.headH + 0.7, c.cz - 6.5);
+    combo.mesh.position.set(c.cx + 1.9, c.headH + 0.75, c.cz - 6.5);
     combo.mesh.lookAt(c.cx, c.headH, c.cz);
     const big = this.panels.big;
     big.mesh.visible = true;
@@ -702,10 +911,43 @@ class App {
       if (this.audio) this.audio.setAmbientLevel(S.ambient / 5);
     }
     else if (id === 'settings') this.showSettings();
+    else if (id === 'library') this.showLibrary();
+    else if (id === 'libback') this.showMenu();
+    else if (id === 'liblock') this.libLock();
+    else if (id.startsWith('libpg:')) this.libPage = Math.max(0, this.libPage + (id.endsWith('+') ? 1 : -1));
+    else if (id.startsWith('lib:')) {
+      const sng = this.libSongs && this.libSongs[+id.slice(4)];
+      if (sng) this.libSelect(sng);
+    } else if (id.startsWith('key:')) {
+      const k = id.slice(4);
+      this.libStatus = '';
+      if (k === 'del') this.pinEntry = this.pinEntry.slice(0, -1);
+      else if (k === 'ok') {
+        const pin = this.pinEntry;
+        this.pinEntry = '';
+        this.libStatus = 'Ověřuji…';
+        this.libTryPin(pin).then((ok) => {
+          if (!ok) this.libStatus = 'Špatný PIN';
+        });
+      } else if (this.pinEntry.length < 4) {
+        this.pinEntry += k;
+        if (this.pinEntry.length === 4) {
+          const pin = this.pinEntry;
+          this.pinEntry = '';
+          this.libStatus = 'Ověřuji…';
+          this.libTryPin(pin).then((ok) => {
+            if (!ok) this.libStatus = 'Špatný PIN';
+          });
+        }
+      }
+    }
     else if (id === 'practice') this.togglePractice();
     else if (id === 'back') {
       this.stopPractice();
       this.showMenu();
+    } else if (id === 'barmode') {
+      const order = ['all', 'duck', 'off'];
+      S.barriers = order[(order.indexOf(S.barriers || 'all') + 1) % 3];
     } else if (id === 'bar:-') S.barrierDrop = Math.max(0.08, +(S.barrierDrop - 0.02).toFixed(2));
     else if (id === 'bar:+') S.barrierDrop = Math.min(0.35, +(S.barrierDrop + 0.02).toFixed(2));
     else if (id === 'kg:-') S.weight = Math.max(35, S.weight - 5);
@@ -882,10 +1124,18 @@ class App {
       else this.bigText = t < 8 * this.spb ? wtxt : '';
       this.panels.big.refresh(this.bigText);
       const g = this.game;
-      this.panels.info.refresh(`${Math.ceil(g.duration - g.t)}|${Math.round(g.kcal)}|${g.score}|${g.mult}|${Math.round((g.t / g.duration) * 100)}|${this.settings.showFps ? this.fps : ''}`);
+      // skóre se „načítá“ nahoru
+      const ds = g.score - this.dispScore;
+      this.dispScore = ds > 0 ? Math.min(g.score, this.dispScore + Math.max(ds * Math.min(1, dt * 9), 40 * dt * 60)) : g.score;
+      this.beatPulse = this.beatPulseAt(g.t);
+      const pq = Math.round(this.beatPulse * 4);
+      this.panels.info.refresh(`${Math.ceil(g.duration - g.t)}|${Math.round(g.kcal)}|${Math.round(this.dispScore)}|${g.hits}|${g.misses}|${Math.round((g.t / g.duration) * 200)}|${pq}|${this.settings.showFps ? this.fps : ''}`);
       this.panels.combo.refresh(`${g.combo}|${g.mult}`);
+      if (g.combo > this.lastComboShown) this.comboBump = 1;
+      this.lastComboShown = g.combo;
+      this.comboBump = Math.max(0, this.comboBump - dt * 6);
       this.comboPop = Math.max(0, this.comboPop - dt * 2);
-      this.panels.combo.mesh.scale.setScalar(1 + this.comboPop * 0.25);
+      this.panels.combo.mesh.scale.setScalar(1 + this.comboPop * 0.25 + this.comboBump * 0.06 + this.beatPulse * 0.03);
     }
     if (this.screen === 'menu') this.panels.menu.refresh(JSON.stringify(this.settings) + this.mode + this.envStatus);
     if (this.screen === 'settings') {
@@ -893,6 +1143,7 @@ class App {
       this.panels.settings.refresh(JSON.stringify(this.settings) + '|' + this.game.attemptRev + '|' + this.game.practiceMode);
     }
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
+    if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.customTrack ? this.customTrack.libUrl : ''].join('|'));
     if (this.screen === 'results') this.panels.results.refresh('r' + (this.lastResult ? this.lastResult.score : 0));
 
     // náraz do bariéry
@@ -902,7 +1153,7 @@ class App {
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
     this.env.update(dt);
-    this.targets.update(dt);
+    this.targets.update(dt, this.screen === 'play' ? this.beatPulse : 0);
     this.fx.splashOn = this.env.splash;
     this.fx.update(dt, this.head);
     this.renderer.render(this.scene, this.camera);

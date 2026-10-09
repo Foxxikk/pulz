@@ -46,10 +46,10 @@ export class Bot {
       if (it.tHit - t > 0.32) continue;
       this.done.add(it.e.i);
       if (this.R() < this.missRate) continue;
-      const side = it.side;
+      const side = it.side === 'B' ? 'R' : it.side;
       const dur = 0.17;
       const contact = it.tHit + this.gauss() * this.jitter;
-      this.motion[side] = { it, start: contact - dur, contact, end: contact + 0.32, type: it.type, side, hit: it.hit.clone() };
+      this.motion[side] = { it, start: contact - dur, contact, end: contact + 0.32, type: it.type === 'finale' ? 'jab' : it.type, side, hit: it.hit.clone() };
     }
     for (const side of ['L', 'R']) {
       const pos = this.guard(side, c, _p);

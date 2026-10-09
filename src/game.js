@@ -48,7 +48,11 @@ export class Game {
   start(chart, track, diff, calib) {
     this.reset();
     this.chart = chart;
-    this.events = chart.events;
+    const bm = this.app.settings.barriers || 'all';
+    this.events = chart.events
+      .filter((e) => e.kind !== 'b' || bm === 'all' || (bm === 'duck' && e.type === 'duck'))
+      .map((e, i) => Object.assign({}, e, { i }));
+    this.finaleDone = null;
     this.duration = chart.duration;
     this.track = track;
     this.diff = DIFFS[diff];
@@ -137,7 +141,12 @@ export class Game {
     const a = GEO.finalFrac;
     let off;
     if (u >= 0) off = D * (a * u + (1 - a) * u * u);
-    else off = D * a * u * (it.kind === 'b' ? 1.6 : 1);
+    else if (it.kind === 'b') off = D * a * u * 1.6;
+    else {
+      // po okamžiku úderu terč rychle zabrzdí (neproletí hráči hlavou)
+      const vEnd = (D * a) / this.flight, tau = 0.08, tt = -u * this.flight;
+      off = -vEnd * tau * (1 - Math.exp(-tt / tau));
+    }
     const uu = Math.max(0, u);
     const conv = uu * uu;
     out.set(it.hit.x + it.far.x * conv, it.hit.y + it.far.y * conv, it.hit.z - off);
@@ -191,7 +200,7 @@ export class Game {
               _a.subVectors(h.prevFist, it.prevPos);
               _b.subVectors(h.fist, it.pos);
               // zóna je elipsoid: ve směru úderu užší (rozbije se až při viditelném dotyku), do stran velkorysá
-              if (it.type === 'jab') { _a.z *= sq; _b.z *= sq; }
+              if (it.type === 'jab' || it.type === 'finale') { _a.z *= sq; _b.z *= sq; }
               else if (it.type === 'hook') { _a.x *= sqSide; _b.x *= sqSide; }
               else { _a.y *= sqSide; _b.y *= sqSide; }
               _d.subVectors(_b, _a);
@@ -203,7 +212,7 @@ export class Game {
                 it.near = dist - RAD;
                 it.nearSpd = Math.max(it.nearSpd, h.speed);
               }
-              if (dist > RAD) continue;
+              if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 1.1 : RAD)) continue;
               this.contact(it, h, t);
               if (it.state !== 'fly') break;
             }
@@ -233,16 +242,17 @@ export class Game {
     const dpm = this.duckLog.length * 3;
     const met = clamp(4 + ppm * 0.045 + dpm * 0.12, 4, 9.5);
     this.kcal += (met * 3.5 * app.settings.weight) / 200 / 60 * dt;
-    if (t >= this.duration && this.items.length === 0) app.finish(true);
+    if (this.finaleDone != null && t > this.finaleDone + 2.2) app.finish(true);
+    else if (t >= this.duration && this.items.length === 0) app.finish(true);
     else if (t >= this.duration + 1.5) app.finish(true);
   }
 
   contact(it, h, t) {
     const app = this.app;
     const spd = h.speed;
-    const sens = this.sens(it.type);
+    const sens = this.sens(it.type === 'finale' ? 'jab' : it.type);
     const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
-    if (h.side !== it.side) {
+    if (h.side !== it.side && it.side !== 'B') {
       if (!it.wrongShown && spd > sens.v * 0.7) {
         it.wrongShown = true;
         it.bump = 1;
@@ -266,7 +276,7 @@ export class Game {
     const g = GEO[it.type];
     _d.copy(h.vel).normalize();
     const cos = _d.x * g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g.dir[1] + _d.z * g.dir[2];
-    const dirOk = cos >= sens.cos;
+    const dirOk = it.type === 'finale' || cos >= sens.cos;
     if (!dirOk && sens.lv === 1) {
       if (!it.dirShown) {
         it.dirShown = true;
@@ -280,6 +290,8 @@ export class Game {
       it.state = 'hit';
       const col = it.side === 'L' ? C_L : C_R;
       app.fx.burst(it.pos, col, _d, clamp((spd - 2) / 4, 0, 1), true, it.type !== 'jab');
+      it.vis.g.position.copy(it.pos);
+      app.targets.shatter(it.vis, _d, clamp((spd - 2) / 4, 0, 1));
       app.audio && app.audio.play(it.type !== 'jab' ? 'hitBig' : 'hit', { gain: 0.9 });
       this.logAttempt({ nm, spd, res: dirOk ? 'zásah' : 'zásah, jiný směr' });
       this.practiceNext = t + 0.45;
@@ -318,13 +330,24 @@ export class Game {
     const col = it.side === 'L' ? C_L : C_R;
     const big = it.type !== 'jab';
     _p.copy(it.pos);
-    app.fx.burst(_p, col, _d, power, q === 'perfect', big);
+    app.fx.burst(_p, it.side === 'B' ? new THREE.Color(COL.gold) : col, _d, power, q === 'perfect', big);
+    it.vis.g.position.copy(_p);
+    app.targets.shatter(it.vis, _d, power);
     app.fx.text(label, _v.copy(_p).add(_a.set(0, 0.2, 0)));
     app.hands.gloves[h.side].flash = 1;
     if (app.audio) {
       const pan = (it.pos.x - this.calib.cx) * 3;
       app.audio.play(big ? 'hitBig' : 'hit', { pan, gain: 0.8 + power * 0.3, rate: 0.95 + Math.random() * 0.1 });
       if (q === 'perfect') app.audio.play('perfect', { pan, gain: 0.7 });
+    }
+    if (it.type === 'finale') {
+      this.score += 1000 * this.mult;
+      app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 3, this.calib.cz - 12), [C_L, C_R, new THREE.Color(COL.gold)]);
+      app.fx.fireworks(_v.set(this.calib.cx, this.calib.headH + 5, this.calib.cz - 18), [new THREE.Color(COL.gold), C_L, C_R]);
+      app.fx.burst(_p, new THREE.Color(COL.gold), _d, 1, true, true);
+      app.fx.text('finale', _v.copy(_p).add(_a.set(0, 0.35, 0)));
+      app.audio && app.audio.play('finish', { gain: 1 });
+      this.finaleDone = t;
     }
     this.milestone();
   }
@@ -347,6 +370,7 @@ export class Game {
   }
 
   miss(it) {
+    if (it.type === 'finale') this.finaleDone = this.t;
     it.state = 'miss';
     it.t1 = this.t;
     this.misses++;
@@ -403,13 +427,13 @@ export class Game {
         const age = it.practice ? 1 : t - (it.tHit - this.flight);
         const pop = clamp(age / 0.25, 0, 1);
         it.bump = Math.max(0, it.bump - dt * 5);
-        g.scale.setScalar((0.3 + 0.7 * pop) * (1 + it.bump * 0.15));
+        g.scale.setScalar((0.3 + 0.7 * pop) * (1 + it.bump * 0.15) * (v.base || 1));
         if (it.bump > 0) g.position.z -= it.bump * 0.04;
         const r = it.practice ? 0.0 : it.tHit - t;
         tp.animateTarget(v, r, pop, JUDGE.perfect, dt);
         // svítící ohon za letícím terčem
         if (!it.practice && r > 0.12) {
-          const c = it.side === 'L' ? C_L : C_R;
+          const c = it.side === 'L' ? C_L : it.side === 'R' ? C_R : new THREE.Color(COL.gold);
           const sp = (it.pos.z - it.prevPos.z) / Math.max(dt, 1e-3);
           const n = sp > 3 ? 2 : 1;
           for (let k = 0; k < n; k++) {
@@ -430,7 +454,7 @@ export class Game {
           // minutý krystal zhasne a propadne se
           g.position.copy(it.pos);
           g.position.y -= k * k * 0.6;
-          g.scale.setScalar(1 - k * 0.7);
+          g.scale.setScalar((1 - k * 0.7) * (v.base || 1));
           v.glow.material.opacity = 0.3 * (1 - k);
           tp.animateTarget(v, -1, 1, 0, dt);
         }
@@ -509,6 +533,10 @@ export class Game {
       barriersTotal: bTot,
       hits: this.hits,
       misses: this.misses,
+      perfect: this.perfect,
+      great: this.great,
+      good: this.good,
+      finale: this.finaleDone != null,
       grade,
     };
   }

@@ -110,16 +110,20 @@ export function buildChart(track, diffId, spb) {
 
   const totalBeats = bar * 4;
   const events = finalize(raw, (b) => b * spb, 8, totalBeats - 4);
+  addFinale(events, (b) => b * spb, totalBeats - 2, totalBeats * spb);
   return { events, totalBeats, duration: totalBeats * spb, targets: events.filter((e) => e.kind === 't').length, barriers: events.filter((e) => e.kind === 'b').length };
 }
 
 // společné dočištění: bariéry, volno kolem nich, stejná ruka min. 0,35 s, časy
 function finalize(raw, timeOf, minBeat, maxBeat) {
   raw.sort((a, b) => a.beat - b.beat);
+  // bariéry: min. 2 takty od sebe, úklon nikdy hned po úklonu (žádné „spirály“)
   const barriers = [];
   for (const e of raw) {
     if (e.kind !== 'b') continue;
-    if (barriers.length && e.beat - barriers[barriers.length - 1].beat < 3) continue;
+    const prev = barriers[barriers.length - 1];
+    if (prev && e.beat - prev.beat < 8) continue;
+    if (prev && prev.type !== 'duck' && e.type !== 'duck' && e.beat - prev.beat < 24) e.type = 'duck';
     barriers.push(e);
   }
   let events = raw.filter((e) => e.kind === 't' && !barriers.some((b) => Math.abs(b.beat - e.beat) < 0.9));
@@ -144,7 +148,17 @@ function finalize(raw, timeOf, minBeat, maxBeat) {
   return events;
 }
 
-// Choreografie pro vlastní skladbu z analýzy (doby nemusí být přesně pravidelné)
+// Choreografie pro vlastní skladbu: terče na SKUTEČNÉ výrazné údery v hudbě (onsety),
+// zarovnané na rytmickou mřížku (doby a půldoby). Hustota podle sekce a obtížnosti.
+const DENSITY = {
+  // počet terčů na frázi (2 takty = 8 dob)
+  easy: { intro: 2, groove: 3, build: 4, drop: 5, break: 2 },
+  mid: { intro: 4, groove: 7, build: 9, drop: 10, break: 3 },
+  hard: { intro: 6, groove: 10, build: 13, drop: 14, break: 5 },
+};
+const MIN_GAP = { easy: 0.45, mid: 0.28, hard: 0.2 };
+const HALF_MIN = { easy: 9, mid: 0.6, hard: 0.38 }; // min. síla pro půldobu (easy = nikdy)
+
 export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
   const R = rng(seed * 1000 + diffId.length * 17 + diffId.charCodeAt(0));
   const beats = an.beats;
@@ -154,41 +168,92 @@ export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
     if (i >= beats.length - 1) return beats[beats.length - 1] + (b - beats.length + 1) * (beats[beats.length - 1] - beats[beats.length - 2]);
     return beats[i] + (b - i) * (beats[i + 1] - beats[i]);
   };
+  // rychlé hledání nejsilnějšího onsetu u času t
+  const ons = an.onsets || [];
+  const onsetNear = (t, w) => {
+    let lo = 0, hi = ons.length - 1;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (ons[m].t < t - w) lo = m + 1;
+      else hi = m;
+    }
+    let best = null;
+    for (let k = lo; k < ons.length && ons[k].t <= t + w; k++) if (!best || ons[k].s > best.s) best = ons[k];
+    return best;
+  };
   const raw = [];
-  let prevType = null;
-  let buildIdx = 0;
-  for (const ph of phrases) {
-    if (ph.type === 'silent') {
-      prevType = 'silent';
-      continue;
+  const minGap = MIN_GAP[diffId];
+  let lastT = -9, lastBarrierBeat = -99, lastLean = null;
+  for (let pi = 0; pi < phrases.length; pi++) {
+    const ph = phrases[pi];
+    if (ph.type === 'silent') continue;
+    // sloty v této frázi: doby a půldoby
+    const slots = [];
+    for (let k = 0; k < 16; k++) {
+      const b = ph.b + k / 2;
+      if (b >= beats.length - 1) break;
+      const t = timeOf(b);
+      const o = onsetNear(t, 0.05);
+      slots.push({ b, t, half: k % 2 === 1, down: k % 8 === 0, back: k % 4 === 2, s: o ? o.s : 0, low: o ? o.low : 0 });
     }
-    let list;
-    if (ph.type === 'build') list = buildPhrase(diffId, buildIdx++ % 2);
-    else {
-      let lib = LIB[ph.type][diffId];
-      if (ph.type === 'drop' && prevType !== 'drop') lib = LIB.dropStart[diffId];
-      list = parse(lib[Math.floor(R() * lib.length)]);
+    if (!slots.length) continue;
+    // síla relativně k frázi (i v tiché pasáži najde akcenty)
+    const ref = Math.max(1e-6, [...slots].map((x) => x.s).sort((a, b) => b - a)[Math.min(2, slots.length - 1)]);
+    for (const x of slots) x.rel = Math.min(1.2, x.s / ref) + (x.down ? 0.12 : 0) + (x.back ? 0.06 : 0) - (x.half ? 0.08 : 0);
+    const want = DENSITY[diffId][ph.type] || DENSITY[diffId].groove;
+    const order = slots.filter((x) => !x.half || x.rel >= HALF_MIN[diffId]).sort((a, b) => b.rel - a.rel);
+    const chosen = [];
+    for (const x of order) {
+      if (chosen.length >= want) break;
+      if (x.rel < 0.3 && chosen.length >= want * 0.6) break;
+      if (x.t - lastT < minGap && x.t > lastT) continue;
+      if (chosen.some((c) => Math.abs(c.t - x.t) < minGap)) continue;
+      chosen.push(x);
     }
-    if (ph.type !== 'build') buildIdx = 0;
-    // na snadné obtížnosti v klidných pasážích ubrat
-    const sx = (R() - 0.5) * 0.14;
-    const sy = (R() - 0.5) * 0.1;
-    for (const e of list) {
-      // půldoby jen tam, kde je v hudbě opravdu úder
-      if (e.b % 1 !== 0) {
-        const bi = ph.b + Math.floor(e.b);
-        if ((an.halfOn[bi] || 0) < 0.08 && diffId !== 'hard') continue;
+    chosen.sort((a, b) => a.t - b.t);
+    // ruce a typy úderů
+    const sx = (R() - 0.5) * 0.14, sy = (R() - 0.5) * 0.1;
+    let hand = R() < 0.5 ? 'L' : 'R';
+    let prevT = lastT;
+    const sorted = [...chosen].sort((a, b) => b.rel - a.rel);
+    const accent = new Set(sorted.slice(0, Math.max(1, Math.round(chosen.length * (diffId === 'easy' ? 0.12 : 0.22)))));
+    for (const x of chosen) {
+      const gapBefore = x.t - prevT;
+      if (gapBefore > 0.9) hand = R() < 0.5 ? 'L' : 'R';
+      let type = 'jab';
+      const calm = ph.type === 'intro' || ph.type === 'break';
+      if (!calm && accent.has(x) && gapBefore > 0.38) {
+        if (x.low > 0.55 && R() < 0.45) type = 'upper';
+        else type = 'hook';
       }
-      raw.push({ ...e, beat: ph.b + e.b, sx: sx + (R() - 0.5) * 0.05, sy: sy + (R() - 0.5) * 0.05, low: e.type === 'jab' && R() < 0.15, section: ph.type });
+      raw.push({ kind: 't', type, hand, beat: x.b, sx: sx + (R() - 0.5) * 0.05, sy: sy + (R() - 0.5) * 0.05, low: type === 'jab' && R() < 0.12, section: ph.type, acc: x.rel });
+      hand = hand === 'L' ? 'R' : 'L';
+      prevT = x.t;
     }
-    prevType = ph.type;
+    if (chosen.length) lastT = chosen[chosen.length - 1].t;
+    // bariéra: max. jedna za 4 takty, jen ve volném místě, úklony nikdy za sebou
+    const barrierOk = ph.type === 'break' || ph.type === 'groove' || (ph.type === 'drop' && R() < 0.35);
+    if (barrierOk && ph.b - lastBarrierBeat >= 16 && R() < (diffId === 'easy' ? 0.35 : 0.5)) {
+      // najít dobu bez terče v okolí ±1,2 doby
+      for (const k of [4, 6, 2, 5, 3]) {
+        const bb = ph.b + k;
+        if (bb >= beats.length - 2) break;
+        if (raw.some((e) => e.kind === 't' && Math.abs(e.beat - bb) < 1.2)) continue;
+        let type = 'duck';
+        if (lastLean === null && R() < 0.25) type = R() < 0.5 ? 'leanL' : 'leanR';
+        raw.push({ kind: 'b', type, beat: bb, sx: 0, sy: 0 });
+        lastBarrierBeat = bb;
+        lastLean = type === 'duck' ? null : type;
+        break;
+      }
+    }
   }
-  // první terč nejdřív ve 3,5 s (let terče + čas na přípravu)
   let minBeat = 0;
   while (minBeat < beats.length && beats[minBeat] < 3.5) minBeat++;
   const lastPh = phrases.filter((p) => p.type !== 'silent').pop();
   const maxBeat = lastPh ? lastPh.b + 8 : beats.length - 1;
   const events = finalize(raw, timeOf, minBeat, Math.min(maxBeat, beats.length - 2));
+  addFinale(events, timeOf, Math.min(maxBeat, beats.length - 2), an.duration);
   return {
     events,
     totalBeats: beats.length,
@@ -196,4 +261,15 @@ export function buildChartFromAnalysis(an, phrases, diffId, seed = 7) {
     targets: events.filter((e) => e.kind === 't').length,
     barriers: events.filter((e) => e.kind === 'b').length,
   };
+}
+
+// Finále: velký zlatý terč 2 doby po posledním terči (hráč ví, že je konec)
+export function addFinale(events, timeOf, maxBeat, duration) {
+  const last = events.filter((e) => e.kind === 't').pop();
+  if (!last) return;
+  let b = Math.ceil(last.beat) + 2;
+  if (b > maxBeat + 4) b = maxBeat;
+  const t = timeOf(b);
+  if (t > duration - 0.3) return;
+  events.push({ kind: 't', type: 'finale', hand: 'B', beat: b, t, sx: 0, sy: 0.05, i: events.length, section: 'finale' });
 }
