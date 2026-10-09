@@ -605,19 +605,6 @@ export class Env {
     rp.rotation.x = -Math.PI / 2;
     rp.position.y = 0.004;
     g.add(rp);
-    // neonové brány nad dráhou terčů (jedou k hráči, blikají do rytmu)
-    this.gates = [];
-    const gateGeo = new THREE.TorusGeometry(2.6, 0.045, 8, 72, Math.PI);
-    const cGL = new THREE.Color(0x3d8fff), cGR = new THREE.Color(0xff8c26);
-    for (let i = 0; i < 6; i++) {
-      const m = new THREE.MeshBasicMaterial({ color: i % 2 ? cGR : cGL, toneMapped: false, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-      const ga = new THREE.Mesh(gateGeo, m);
-      ga.userData.z = -9 - i * 7;
-      ga.position.set(0, 0.2, ga.userData.z);
-      ga.renderOrder = -2;
-      this.scene.add(ga);
-      this.gates.push(ga);
-    }
     // proud světelných částic k hráči (pocit rychlosti)
     const NP = 260;
     const pp = new Float32Array(NP * 3), ps = new Float32Array(NP);
@@ -650,6 +637,69 @@ export class Env {
     this.scene.add(g);
   }
 
+  // reproduktory ve scéně (odtud jde prostorová hudba); membrány pulzují do rytmu
+  setSpeakers(cx, headH, cz) {
+    if (!this.speakers) {
+      this.speakers = [];
+      const cab = new THREE.MeshStandardMaterial({ color: 0x141a26, metalness: 0.5, roughness: 0.35 });
+      const grill = new THREE.MeshStandardMaterial({ color: 0x0a0d14, metalness: 0.2, roughness: 0.8 });
+      const cone = new THREE.MeshStandardMaterial({ color: 0x1e2533, metalness: 0.3, roughness: 0.5 });
+      const cols = [0x3d8fff, 0xff8c26];
+      for (let i = 0; i < 2; i++) {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.25, 0.46), cab);
+        g.add(body);
+        const front = new THREE.Mesh(new THREE.BoxGeometry(0.56, 1.19, 0.02), grill);
+        front.position.z = 0.235;
+        g.add(front);
+        const ringMat = new THREE.MeshBasicMaterial({ color: cols[i], toneMapped: false });
+        const woofers = [];
+        for (const [y, r] of [[-0.24, 0.21], [0.3, 0.12]]) {
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(r, 0.014, 8, 40), ringMat);
+          rim.position.set(0, y, 0.25);
+          g.add(rim);
+          const c = new THREE.Mesh(new THREE.ConeGeometry(r * 0.95, r * 0.45, 32, 1, true), cone);
+          c.rotation.x = -Math.PI / 2;
+          c.position.set(0, y, 0.24);
+          g.add(c);
+          const cap = new THREE.Mesh(new THREE.SphereGeometry(r * 0.28, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), ringMat);
+          cap.rotation.x = Math.PI / 2;
+          cap.position.set(0, y, 0.2);
+          g.add(cap);
+          woofers.push({ c, cap, z: 0.24 });
+        }
+        const tw = new THREE.Mesh(new THREE.CircleGeometry(0.035, 20), ringMat);
+        tw.position.set(0, 0.5, 0.247);
+        g.add(tw);
+        // zářící lem kolem bedny
+        if (!this._spkGlowTex) {
+          const cv = document.createElement('canvas');
+          cv.width = cv.height = 128;
+          const x = cv.getContext('2d');
+          const gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+          gr.addColorStop(0, 'rgba(255,255,255,1)');
+          gr.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+          gr.addColorStop(1, 'rgba(255,255,255,0)');
+          x.fillStyle = gr;
+          x.fillRect(0, 0, 128, 128);
+          this._spkGlowTex = new THREE.CanvasTexture(cv);
+        }
+        const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this._spkGlowTex, color: cols[i], transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false }));
+        glow.scale.set(1.6, 2.2, 1);
+        glow.position.z = -0.3;
+        g.add(glow);
+        this.scene.add(g);
+        this.speakers.push({ g, woofers, glow });
+      }
+    }
+    this.speakers.forEach((sp, i) => {
+      const x = cx + (i ? 2.6 : -2.6);
+      sp.g.position.set(x, headH + 0.3, cz - 3.2);
+      // natočit k hráči
+      sp.g.rotation.set(0, Math.atan2(cx - x, 3.2), 0);
+    });
+  }
+
   // zásah: vlna ekvalizérem ze směru terče (úhel kolem hráče, 0 = vpředu, + = vpravo)
   kick(angle, color, power = 1) {
     if (this.waves.length > 8) this.waves.shift();
@@ -658,16 +708,15 @@ export class Env {
   }
 
   updateFx(dt) {
-    // brány a proud částic
-    const spd = this.playing ? 3.2 : 0.8;
-    for (const ga of this.gates) {
-      ga.userData.z += spd * dt;
-      if (ga.userData.z > -5) ga.userData.z -= 42;
-      ga.position.z = ga.userData.z;
-      const far = Math.min(1, Math.max(0, (-ga.userData.z - 5) / 6)) * Math.min(1, Math.max(0, (47 + ga.userData.z) / 8));
-      ga.material.opacity = far * ((this.playing ? 0.35 : 0.18) + this.beat * 0.55);
-      ga.scale.setScalar(1 + this.beat * 0.03);
+    if (this.speakers) for (const sp of this.speakers) {
+      for (const w of sp.woofers) {
+        w.c.position.z = w.z + this.beat * 0.025;
+        w.cap.position.z = w.z - 0.04 + this.beat * 0.025;
+      }
+      sp.glow.material.opacity = 0.08 + this.beat * 0.25;
+      sp.g.position.y += Math.sin(this.t * 1.3 + sp.g.position.x) * 0.0004;
     }
+    // proud částic
     const pa = this.stream.geometry.attributes.position, arr = pa.array;
     const vs = this.playing ? 7 : 1.2;
     for (let i = 0; i < arr.length; i += 3) {

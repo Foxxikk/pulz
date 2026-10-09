@@ -317,6 +317,81 @@ export class Kit {
     }
   }
 
+  // 808 „punch“: sinus s prudkým pádem výšky + přebuzení → harmonické, aby bas byl slyšet
+  // i na malých reproduktorech headsetu (psychoakustický bas)
+  boom(t, v, dest, o = {}) {
+    const oc = this.oc;
+    const f0 = o.f0 || 52;
+    const dur = o.dur || 0.55;
+    const os = oc.createOscillator();
+    os.type = 'sine';
+    os.frequency.setValueAtTime(f0 * 3.2, t);
+    os.frequency.exponentialRampToValueAtTime(f0 * 1.25, t + 0.045);
+    os.frequency.exponentialRampToValueAtTime(f0, t + 0.16);
+    os.frequency.exponentialRampToValueAtTime(f0 * 0.88, t + dur);
+    const g = this.gain(0);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.003);
+    g.gain.setValueAtTime(v, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const sh = oc.createWaveShaper();
+    const drive = o.drive || 3.5;
+    const curve = new Float32Array(2048);
+    for (let i = 0; i < 2048; i++) {
+      const x = (i / 2047) * 2 - 1;
+      curve[i] = Math.tanh(x * drive) / Math.tanh(drive);
+    }
+    sh.curve = curve;
+    sh.oversample = '2x';
+    // čistý sub + zkreslená kopie (harmonické 100–300 Hz) přes dolní propust
+    const lp = this.filt('lowpass', o.lp || 900, 0.7);
+    const satG = this.gain(o.sat ?? 0.55);
+    os.connect(g);
+    g.connect(dest);
+    g.connect(sh).connect(lp).connect(satG).connect(dest);
+    os.start(t);
+    os.stop(t + dur + 0.05);
+    // úderový „klik“ kopáku
+    const n = this.noiseSrc(t, 0.02);
+    const bp = this.filt('bandpass', 1800, 0.8);
+    const g2 = this.gain(0);
+    this.env(g2.gain, t, 0.0005, v * 0.35, 0.012);
+    n.connect(bp).connect(g2).connect(dest);
+  }
+
+  // průlet objektu kolem hlavy: šum s pásmem, které stoupá a klesá (Doppler), + hluboké hučení
+  flyby(t, v, dest, o = {}) {
+    const oc = this.oc;
+    const peak = o.peak || 0.42;
+    const dur = o.dur || 0.85;
+    const n = this.noiseSrc(t, dur);
+    const bp = this.filt('bandpass', o.f0 || 350, o.q || 1.6);
+    bp.frequency.setValueAtTime(o.f0 || 350, t);
+    bp.frequency.exponentialRampToValueAtTime(o.f1 || 2600, t + peak);
+    bp.frequency.exponentialRampToValueAtTime(o.f2 || 420, t + dur);
+    const g = this.gain(0);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v * 0.25, t + peak * 0.6);
+    g.gain.exponentialRampToValueAtTime(v, t + peak);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(bp).connect(g).connect(dest);
+    if (o.hum) {
+      const os = oc.createOscillator();
+      os.type = 'sawtooth';
+      os.frequency.setValueAtTime(o.hum * 1.15, t);
+      os.frequency.setValueAtTime(o.hum * 1.15, t + peak - 0.05);
+      os.frequency.exponentialRampToValueAtTime(o.hum * 0.8, t + peak + 0.1);
+      const lp = this.filt('lowpass', 380, 1.2);
+      const g2 = this.gain(0);
+      g2.gain.setValueAtTime(0.0001, t);
+      g2.gain.exponentialRampToValueAtTime(v * 0.5, t + peak);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      os.connect(lp).connect(g2).connect(dest);
+      os.start(t);
+      os.stop(t + dur + 0.05);
+    }
+  }
+
   // pruty snare (kostra snare bez tónu), na perfektní zásah
   snare(t, v, dest) {
     const n = this.noiseSrc(t, 0.22);

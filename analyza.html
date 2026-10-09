@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PULZ – analýza detekce</title>
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f3f2ee;
+    --surface-1: #fcfcfb;
+    --line: #e2e0d8;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #7b7a74;
+    --accent: #eb6834;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+    --grid: #e7e5de;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #111110;
+      --surface-1: #1a1a19;
+      --line: #2e2d2a;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #8f8e86;
+      --accent: #d95926;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
+      --grid: #2a2927;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #111110; --surface-1: #1a1a19; --line: #2e2d2a;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --accent: #d95926;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --grid: #2a2927;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  p.lead { color: var(--text-secondary); margin: 0 0 20px; }
+  .card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+  form, .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input, select, button { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text-primary); }
+  button { background: var(--accent); color: #fff; border: 0; font-weight: 700; cursor: pointer; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .tile .k { color: var(--text-secondary); font-size: 13px; }
+  .tile .v { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .tile .s { color: var(--text-muted); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  .stack { display: flex; height: 22px; border-radius: 4px; overflow: hidden; gap: 2px; margin: 6px 0 10px; }
+  .stack div { height: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--text-secondary); font-size: 13px; }
+  .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+  .hbar { height: 10px; background: var(--s1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hist { display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid var(--grid); position: relative; }
+  .hist div { flex: 1; background: var(--s1); border-radius: 4px 4px 0 0; min-height: 0; position: relative; }
+  .hist div:hover { filter: brightness(1.15); }
+  .hist .zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text-muted); }
+  .axis { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .rec { padding-left: 18px; margin: 0; }
+  .rec li { margin-bottom: 6px; }
+  .muted { color: var(--text-muted); }
+  #tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--line); color: var(--text-primary); padding: 6px 9px; border-radius: 8px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.18); display: none; z-index: 9; }
+  a { color: var(--s1); }
+  @media (max-width: 560px) { td.hide, th.hide { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>PULZ – analýza detekce úderů</h1>
+  <p class="lead">Záznamy tréninků z Questu (ukázka s botem se neukládá). Ukazuje, proč se terče minuly, jak silné jsou údery, jak dobře Quest sleduje ruce a jak sedí načasování.</p>
+
+  <div class="card" id="pinCard">
+    <form id="pinForm">
+      <label for="pin">PIN</label>
+      <input id="pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+      <button>Načíst záznamy</button>
+      <span id="status" class="muted"></span>
+    </form>
+  </div>
+
+  <div id="out" hidden>
+    <div class="card controls">
+      <label for="range">Tréninky:</label>
+      <select id="range">
+        <option value="5">posledních 5</option>
+        <option value="10" selected>posledních 10</option>
+        <option value="30">posledních 30</option>
+        <option value="9999">všechny</option>
+      </select>
+      <span id="loaded" class="muted"></span>
+    </div>
+    <div class="tiles" id="tiles"></div>
+    <div class="card"><h2>Doporučení</h2><ul class="rec" id="recs"></ul></div>
+    <div class="card"><h2>Proč se terče minuly</h2><div id="reasons"></div></div>
+    <div class="card"><h2>Úspěšnost podle úderu a ruky</h2><div id="types"></div></div>
+    <div class="grid2">
+      <div class="card"><h2>Načasování zásahů</h2><div id="timing"></div></div>
+      <div class="card"><h2>Síla úderů</h2><div id="speed"></div></div>
+    </div>
+    <div class="card"><h2>Jednotlivé tréninky</h2><div id="sessions"></div></div>
+  </div>
+</main>
+<div id="tip"></div>
+<script type="module">
+import { SENS, ZONE } from './src/config.js';
+const $ = (id) => document.getElementById(id);
+const REASONS = [
+  ['slabý', 'slabý úder', 'var(--s1)'],
+  ['těsně vedle', 'těsně vedle', 'var(--s2)'],
+  ['ztráta sledování', 'Quest ztratil ruku', 'var(--s3)'],
+  ['mimo', 'úplně mimo / neudeřeno', 'var(--s4)'],
+  ['druhá ruka', 'druhá ruka', 'var(--s5)'],
+  ['směr', 'špatný směr', 'var(--s6)'],
+];
+const TYPES = { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák', finale: 'Finále' };
+let all = [];
+const cache = new Map();
+const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+const q = (arr, p) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
+const fmt = (x, d = 2) => (x == null ? '–' : x.toFixed(d).replace('.', ','));
+function reason(x) {
+  if (x.wk) return 'slabý';
+  if (x.w) return 'druhá ruka';
+  if (x.d) return 'směr';
+  if (x.tr != null && x.tr < 0.6) return 'ztráta sledování';
+  if (x.n != null && x.n <= 6) return 'těsně vedle';
+  return 'mimo';
+}
+const tip = $('tip');
+function bindTip(el, html) {
+  el.addEventListener('mousemove', (e) => { tip.innerHTML = html; tip.style.display = 'block'; tip.style.left = e.clientX + 14 + 'px'; tip.style.top = e.clientY + 12 + 'px'; });
+  el.addEventListener('mouseleave', () => (tip.style.display = 'none'));
+}
+function hist(el, values, lo, hi, step, unit, zeroAt) {
+  const bins = [];
+  for (let x = lo; x < hi; x += step) bins.push({ a: x, b: x + step, n: 0 });
+  for (const v of values) {
+    const i = Math.min(bins.length - 1, Math.max(0, Math.floor((v - lo) / step)));
+    bins[i].n++;
+  }
+  const max = Math.max(1, ...bins.map((b) => b.n));
+  const h = document.createElement('div');
+  h.className = 'hist';
+  for (const b of bins) {
+    const d = document.createElement('div');
+    d.style.height = (b.n / max) * 100 + '%';
+    bindTip(d, `${b.a}–${b.b} ${unit}: <b>${b.n}</b>`);
+    h.append(d);
+  }
+  if (zeroAt != null) {
+    const z = document.createElement('span');
+    z.className = 'zero';
+    z.style.left = ((zeroAt - lo) / (hi - lo)) * 100 + '%';
+    h.append(z);
+  }
+  el.append(h);
+  const ax = document.createElement('div');
+  ax.className = 'axis';
+  ax.innerHTML = `<span>${lo} ${unit}</span><span>${(lo + hi) / 2} ${unit}</span><span>${hi} ${unit}</span>`;
+  el.append(ax);
+}
+
+async function load(pin) {
+  $('status').textContent = 'Načítám seznam…';
+  const r = await fetch('/api/logs', { headers: { 'x-pin': pin }, cache: 'no-store' });
+  if (r.status === 401) { $('status').textContent = 'Špatný PIN'; return; }
+  if (!r.ok) { $('status').textContent = 'Seznam není dostupný (' + r.status + ')'; return; }
+  try { localStorage.setItem('pulz.pin', pin); } catch (e) {}
+  all = (await r.json()).logs;
+  $('status').textContent = all.length ? `${all.length} záznamů` : 'Zatím žádné záznamy – zahraj si trénink na Questu.';
+  $('out').hidden = !all.length;
+  if (all.length) render();
+}
+
+async function render() {
+  const n = +$('range').value;
+  const pick = all.slice(0, n);
+  $('loaded').textContent = 'stahuji…';
+  const recs = [];
+  for (const l of pick) {
+    if (!cache.has(l.url)) {
+      try { cache.set(l.url, await fetch(l.url).then((r) => r.json())); } catch (e) { cache.set(l.url, null); }
+    }
+    const x = cache.get(l.url);
+    if (x) recs.push({ ...x, url: l.url });
+  }
+  $('loaded').textContent = `${recs.length} tréninků`;
+  const items = recs.flatMap((r) => r.items.map((it) => ({ ...it, sens: r.set.sens, zone: r.set.zone })));
+  const tg = items.filter((x) => x.ty !== 'finale');
+  const hits = tg.filter((x) => x.r !== 'miss');
+  const miss = tg.filter((x) => x.r === 'miss');
+  let tn = 0, tok = 0, tex = 0;
+  for (const r of recs) for (const s of ['L', 'R']) { tn += r.trk[s].n; tok += r.trk[s].ok; tex += r.trk[s].ex; }
+  const fps = recs.flatMap((r) => r.fps);
+  const errs = hits.map((x) => x.e).filter((x) => x != null);
+  const meanErr = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : 0;
+  const bars = recs.flatMap((r) => r.bars || []);
+  // dlaždice
+  const tiles = [
+    ['Tréninky', recs.length, ''],
+    ['Terče', tg.length, `${hits.length} zásahů`],
+    ['Úspěšnost', pct(hits.length, tg.length) + ' %', `minuto ${miss.length}`],
+    ['Sledování rukou', pct(tok, tn) + ' %', `dopočítáno ${pct(tex, tn)} % snímků`],
+    ['Načasování', (meanErr > 0 ? '+' : '') + Math.round(meanErr) + ' ms', meanErr > 0 ? 'údery v průměru pozdě' : 'údery v průměru brzy'],
+    ['FPS', fps.length ? Math.round(fps.reduce((a, b) => a + b, 0) / fps.length) : '–', 'průměr'],
+    ['Bariéry', bars.length ? pct(bars.filter((b) => b.ok).length, bars.length) + ' %' : '–', `${bars.length} celkem`],
+  ];
+  $('tiles').innerHTML = tiles.map(([k, v, s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+  // důvody minutí
+  const rc = Object.fromEntries(REASONS.map(([k]) => [k, 0]));
+  for (const x of miss) rc[reason(x)]++;
+  const re = $('reasons');
+  re.innerHTML = '';
+  if (!miss.length) re.innerHTML = '<p class="muted">Žádné minuté terče.</p>';
+  else {
+    const st = document.createElement('div');
+    st.className = 'stack';
+    for (const [k, label, c] of REASONS) {
+      if (!rc[k]) continue;
+      const d = document.createElement('div');
+      d.style.flex = rc[k];
+      d.style.background = c;
+      bindTip(d, `${label}: <b>${rc[k]}×</b> (${pct(rc[k], miss.length)} %)`);
+      st.append(d);
+    }
+    re.append(st);
+    const lg = document.createElement('div');
+    lg.className = 'legend';
+    lg.innerHTML = REASONS.filter(([k]) => rc[k]).map(([k, label, c]) => `<span style="--c:${c}">${label} – ${rc[k]}× (${pct(rc[k], miss.length)} %)</span>`).join('');
+    re.append(lg);
+  }
+  // podle typu a ruky
+  const rows = [];
+  for (const ty of ['jab', 'hook', 'upper']) for (const h of ['L', 'R']) {
+    const a = tg.filter((x) => x.ty === ty && x.h === h);
+    if (!a.length) continue;
+    const m = a.filter((x) => x.r === 'miss');
+    const top = {};
+    for (const x of m) top[reason(x)] = (top[reason(x)] || 0) + 1;
+    const tr = Object.entries(top).sort((p, q2) => q2[1] - p[1])[0];
+    rows.push({ ty, h, n: a.length, hit: pct(a.length - m.length, a.length), top: tr ? `${REASONS.find((r) => r[0] === tr[0])[1]} (${tr[1]}×)` : '–', sp: q(a.filter((x) => x.s).map((x) => x.s), 0.5) });
+  }
+  $('types').innerHTML = `<table><thead><tr><th>Úder</th><th>Ruka</th><th class="num">Terčů</th><th class="num">Zásah</th><th style="width:30%"></th><th class="hide">Nejčastější důvod minutí</th><th class="num hide">Medián síly</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${TYPES[r.ty]}</td><td>${r.h === 'L' ? 'levá' : 'pravá'}</td><td class="num">${r.n}</td><td class="num">${r.hit} %</td><td><div class="hbar" style="width:${r.hit}%"></div></td><td class="hide">${r.top}</td><td class="num hide">${fmt(r.sp)} m/s</td></tr>`).join('')}</tbody></table>`;
+  // načasování
+  const ti = $('timing');
+  ti.innerHTML = `<p class="muted" style="margin-top:0">Odchylka úderu od rytmu (záporné = brzy). Medián ${Math.round(q(errs, 0.5) ?? 0)} ms, 80 % zásahů v ±${Math.round(Math.max(Math.abs(q(errs, 0.1) ?? 0), Math.abs(q(errs, 0.9) ?? 0)))} ms.</p>`;
+  hist(ti, errs.map((e) => Math.max(-219, Math.min(219, e))), -220, 220, 20, 'ms', 0);
+  // síla
+  const sp = $('speed');
+  const sHit = hits.map((x) => x.s).filter(Boolean), s0 = hits.map((x) => x.s0).filter(Boolean);
+  const helped = hits.filter((x) => x.s0 != null && x.s != null && x.s0 < SENS[(x.sens[x.ty] || 3) - 1].v && x.s >= SENS[(x.sens[x.ty] || 3) - 1].v).length;
+  const weak = miss.filter((x) => x.wk).map((x) => x.np || x.ns).filter(Boolean);
+  sp.innerHTML = `<table><thead><tr><th></th><th class="num">10 %</th><th class="num">medián</th><th class="num">90 %</th></tr></thead><tbody>
+    <tr><td>Švih při zásahu (m/s)</td><td class="num">${fmt(q(sHit, 0.1))}</td><td class="num">${fmt(q(sHit, 0.5))}</td><td class="num">${fmt(q(sHit, 0.9))}</td></tr>
+    <tr><td>Rychlost v okamžiku doteku</td><td class="num">${fmt(q(s0, 0.1))}</td><td class="num">${fmt(q(s0, 0.5))}</td><td class="num">${fmt(q(s0, 0.9))}</td></tr>
+    <tr><td>„Slabé“ minuté údery</td><td class="num">${fmt(q(weak, 0.1))}</td><td class="num">${fmt(q(weak, 0.5))}</td><td class="num">${fmt(q(weak, 0.9))}</td></tr>
+  </tbody></table><p class="muted">Měření švihu (v7) zachránilo ${helped} zásahů, které by dřív byly „slabé“. Prahy citlivosti: ${SENS.map((s, i) => `${i + 1} = ${fmt(s.v)}`).join(', ')} m/s.</p>`;
+  // doporučení
+  const out = [];
+  const m = miss.length || 1;
+  if (rc['slabý'] / m > 0.25) {
+    const thr = q(miss.filter((x) => x.wk).map((x) => SENS[(x.sens[x.ty] || 3) - 1].v), 0.5);
+    out.push(`Čtvrtina a víc minutí je „slabý úder“ (medián švihu ${fmt(q(weak, 0.5))} m/s, práh ${fmt(thr)} m/s) → zvýšit citlivost o 1 stupeň u úderu, který vede v tabulce.`);
+  }
+  if (rc['těsně vedle'] / m > 0.25) out.push('Hodně minutí je „těsně vedle“ (do 6 cm) → zvětšit zónu zásahu o 1 stupeň, případně přidat do hry větší toleranci u daného úderu.');
+  if (rc['ztráta sledování'] / m > 0.2) out.push('Quest často ztrácí ruku v okamžiku úderu → lepší světlo v místnosti, ruce držet ve výhledu; pro vývoj: delší dopočítávání polohy po ztrátě (teď 150 ms).');
+  if (rc['směr'] / m > 0.15) out.push('Údery mají často jiný směr, než terč čeká → citlivost 1 je na směr přísná; nastavit 2 a víc.');
+  if (rc['druhá ruka'] / m > 0.15) out.push('Často bije druhá ruka → barvy terčů nejsou dost čitelné, nebo jsou terče moc u sebe.');
+  if (Math.abs(meanErr) > 40 && errs.length > 20) out.push(`Údery jsou v průměru ${meanErr > 0 ? 'pozdě' : 'brzy'} o ${Math.abs(Math.round(meanErr))} ms → posun zvuku v nastavení o ${meanErr > 0 ? '+' : '−'}${Math.round(Math.abs(meanErr) / 10) * 10} ms.`);
+  if (pct(tok, tn) < 85 && tn > 0) out.push(`Ruce jsou sledované jen v ${pct(tok, tn)} % snímků – to je málo, zkontroluj osvětlení a čistotu kamer headsetu.`);
+  if (!out.length) out.push('Detekce vypadá v pořádku – žádný výrazný problém v datech.');
+  $('recs').innerHTML = out.map((x) => `<li>${x}</li>`).join('');
+  // tréninky
+  $('sessions').innerHTML = `<table><thead><tr><th>Kdy</th><th>Skladba</th><th class="hide">Obtížnost</th><th class="num">Zásahy</th><th class="num hide">Sledování</th><th class="num hide">FPS</th><th></th></tr></thead><tbody>${recs.map((r) => {
+    const t = r.items.filter((x) => x.ty !== 'finale');
+    const h = t.filter((x) => x.r !== 'miss').length;
+    const tn2 = r.trk.L.n + r.trk.R.n, ok2 = r.trk.L.ok + r.trk.R.ok;
+    const f = r.fps.length ? Math.round(r.fps.reduce((a, b) => a + b, 0) / r.fps.length) : '–';
+    return `<tr><td>${new Date(r.ts).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${r.track}</td><td class="hide">${r.diff}</td><td class="num">${h}/${t.length}</td><td class="num hide">${pct(ok2, tn2)} %</td><td class="num hide">${f}</td><td><a href="${r.url}" target="_blank" rel="noopener">data</a></td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+$('pinForm').addEventListener('submit', (e) => { e.preventDefault(); load($('pin').value.trim()); });
+$('range').addEventListener('change', render);
+try { const p = localStorage.getItem('pulz.pin'); if (p) { $('pin').value = p; load(p); } } catch (e) {}
+</script>
+</body>
+</html>

@@ -17,6 +17,15 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v7
+- **Prostorová hudba**: levý a pravý kanál hrají ze dvou reproduktorů ve scéně (vlevo a vpravo před hráčem) přes HRTF, s malým prostorem. Hudba zůstává na místě, i když otočíš hlavou. Reproduktory jsou vidět a membrány pulzují do rytmu. V nastavení přepínač **Hudba: prostorová / klasické stereo**.
+- **Basový zásah**: 808 „punch“ (sinus s prudkým pádem výšky, přebuzený, aby bas byl slyšet i z reproduktorů Questu) + tom s paličkou; hook a zvedák ještě hlubší a delší.
+- **Zvuk průletu**: půlkruh i zeď při průletu kolem hlavy zasviští (vrchol zvuku přesně v okamžiku průletu, ze strany, kde překážka je); zeď je těžší a hlubší.
+- **Hudba po tréninku**: na obrazovce výsledků a v menu hraje tiše klidná smyčka, dokud nezačne další trénink.
+- **Lepší detekce úderů**: síla se měří jako špička švihu za posledních 120 ms (dřív rychlost v okamžiku doteku, kdy pěst už brzdí → „slabý úder“ i u pořádné rány). Směr se bere z okamžiku doteku. Terč po okamžiku úderu dojede jen kousek (nenarazí do ruky v gardě).
+- **Záznam her a analýza**: po každém tréninku na Questu se odešle anonymní záznam (časy, rychlosti, vzdálenosti, kvalita sledování rukou, nastavení; žádné osobní údaje) do úložiště. Na **/analyza.html** (PIN) jsou statistiky: proč se terče minuly, úspěšnost podle úderu a ruky, švih vs. rychlost při doteku, načasování, kvalita sledování a automatická doporučení. Výsledky tréninku ukazují i důvody minutí.
+- Neonové brány nad řekou odstraněny.
+
 ## Novinky v6
 - **Větší terče** (průměr 34 cm místo 26 cm) s výraznější kopulí; zóna zásahu zůstala zhruba stejná, takže hra není „laxnější“.
 - **Lepší buben**: zvuk zásahu je model skutečné blány (6 kmitových módů kruhové membrány s vlastním doznáním), úder paličky, rezonance korpusu, „buch“ do hrudi, jemné přebuzení a krátký prostor. Direkt = tom (levá ruka výš, pravá níž), hook/zvedák = velký kotel jako taiko.

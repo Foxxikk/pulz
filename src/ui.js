@@ -205,7 +205,8 @@ export function makePanels(app) {
     bigStepper(p, g, 'su', 640, 120, 'Zvedák', lv('upper'), sub('upper'));
     bigStepper(p, g, 'zone', 934, 120, 'Zóna zásahu', `${S.zone} · ${ZONE[S.zone - 1].name}`, `+${Math.round(ZONE[S.zone - 1].tol * 100)} cm`);
     smallStepper(p, g, 'bar', 52, 286, 'Bariéra', `−${Math.round(S.barrierDrop * 100)} cm`);
-    p.btn('barmode', 52, 422, 1176, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: jen půlkruhy (bez zdí)', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 30, weight: 800, on: (S.barriers || 'all') !== 'all' });
+    p.btn('spatial', 648, 422, 580, 72, S.spatial !== false ? 'Hudba: prostorová (z reproduktorů)' : 'Hudba: klasické stereo', { size: 26, weight: 800, on: S.spatial !== false });
+    p.btn('barmode', 52, 422, 580, 72, { all: 'Bariéry: všechny', duck: 'Bariéry: bez zdí', off: 'Bariéry: vypnuté' }[S.barriers || 'all'], { size: 26, weight: 800, on: (S.barriers || 'all') !== 'all' });
     smallStepper(p, g, 'kg', 346, 286, 'Váha', `${S.weight} kg`);
     smallStepper(p, g, 'off', 640, 286, 'Posun zvuku', `${S.audioOffset > 0 ? '+' : ''}${S.audioOffset} ms`);
     smallStepper(p, g, 'amb', 934, 286, 'Zvuky přírody', (S.ambient ?? 3) === 0 ? 'vypnuto' : `${S.ambient ?? 3} / 5`);
@@ -499,18 +500,21 @@ export function makePanels(app) {
       const w = (1176 * n) / tot;
       if (w < 1) return;
       g.fillStyle = c;
-      g.fillRect(x0, 556, w, 22);
+      g.fillRect(x0, 548, w, 20);
       x0 += w;
     });
     parts.forEach(([n, c, l], i) => {
       g.fillStyle = c;
       g.beginPath();
-      g.arc(72 + i * 292, 606, 9, 0, Math.PI * 2);
+      g.arc(72 + i * 292, 590, 9, 0, Math.PI * 2);
       g.fill();
-      text(g, `${l} ${n}`, 90 + i * 292, 614, 24, { weight: 600, color: 'rgba(255,255,255,0.8)' });
+      text(g, `${l} ${n}`, 90 + i * 292, 598, 24, { weight: 600, color: 'rgba(255,255,255,0.8)' });
     });
-    p.btn('again', 60, 650, 560, 130, 'Znovu', { primary: true, size: 52, weight: 900 });
-    p.btn('menu', 660, 650, 560, 130, 'Menu', { size: 46, weight: 800 });
+    // proč se minulo (pomáhá s nastavením citlivosti)
+    const rs = Object.entries(r.reasons || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (rs.length) text(g, 'Minuté: ' + rs.map(([k, n]) => `${k} ${n}×`).join(' · '), 60, 634, 23, { weight: 600, color: '#ffb08a' });
+    p.btn('again', 60, 660, 560, 120, 'Znovu', { primary: true, size: 52, weight: 900 });
+    p.btn('menu', 660, 660, 560, 120, 'Menu', { size: 46, weight: 800 });
   }, { interactive: true });
 
   P.hint = new Panel(1024, 200, 0.62, (g) => {

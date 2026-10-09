@@ -178,4 +178,5 @@ export const DEFAULT_SETTINGS = {
   weight: 75,
   audioOffset: 0, // ms
   showFps: false,
+  spatial: true, // hudba z reproduktorů ve scéně (prostorový zvuk)
 };

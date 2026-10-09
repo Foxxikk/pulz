@@ -25,6 +25,7 @@ const KNUCKLES = [2, 3, 6, 7, 8, 11, 12, 13, 16, 17, 18, 21, 22, 23];
 
 const LOST_EXTRAP = 0.15; // s – jak dlouho dopočítávat polohu po ztrátě sledování
 const HIST = 12;
+const PEAK_WIN = 0.12; // s – okno pro špičkovou rychlost úderu
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3();
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
@@ -327,6 +328,12 @@ export class HandState {
     this.alpha = 0;
     this.fresh = false;
     this.lastSample = new THREE.Vector3(1e9, 0, 0);
+    // špičková rychlost za posledních ~120 ms (úder před dotykem brzdí – rozhoduje švih, ne doběh)
+    this.vh = [];
+    for (let i = 0; i < 24; i++) this.vh.push({ t: -1, s: 0, x: 0, y: 0, z: 0 });
+    this.vi = 0;
+    this.pk = 0;
+    this.pkVel = new THREE.Vector3();
   }
 }
 
@@ -474,6 +481,22 @@ export class Hands {
         h.vel.set(0, 0, 0);
       }
       if (h.lostFor > 0.4) h.alpha = Math.max(0, h.alpha - dt * 5);
+    }
+    // historie rychlostí → špička za okno PEAK_WIN
+    h.vi = (h.vi + 1) % h.vh.length;
+    const e = h.vh[h.vi];
+    e.t = t;
+    e.s = h.speed;
+    e.x = h.vel.x;
+    e.y = h.vel.y;
+    e.z = h.vel.z;
+    h.pk = 0;
+    for (const q of h.vh) {
+      if (q.t < 0 || t - q.t > PEAK_WIN || q.t > t) continue;
+      if (q.s > h.pk) {
+        h.pk = q.s;
+        h.pkVel.set(q.x, q.y, q.z);
+      }
     }
   }
 }

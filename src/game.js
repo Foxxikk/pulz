@@ -60,6 +60,65 @@ export class Game {
     this.flight = this.diff.flight;
     this.calib = calib;
     this.running = true;
+    // záznam tréninku pro analýzu detekce (bez osobních údajů)
+    const S = this.app.settings;
+    this.rec = {
+      v: 1,
+      ver: 'v7',
+      ts: new Date().toISOString(),
+      track: track.name,
+      custom: !!track.custom,
+      bpm: Math.round(track.bpm),
+      diff,
+      mode: this.app.mode,
+      demo: !!this.app.demo,
+      ua: navigator.userAgent.slice(0, 160),
+      set: { sens: { ...S.sens }, zone: S.zone, barriers: S.barriers || 'all', drop: S.barrierDrop, off: S.audioOffset },
+      calib: { h: +calib.headH.toFixed(2), reach: +(calib.reach || 0).toFixed(2) },
+      trk: { L: { n: 0, ok: 0, ex: 0 }, R: { n: 0, ok: 0, ex: 0 } },
+      fps: [],
+      items: [],
+      bars: [],
+    };
+    this.recFpsT = 0;
+  }
+
+  // zapsat výsledek terče do záznamu
+  recItem(it, res, extra = {}) {
+    if (!this.rec || it.practice) return;
+    const r = {
+      t: +it.tHit.toFixed(2),
+      ty: it.type,
+      h: it.side,
+      r: res,
+      n: it.near < 9 ? Math.round(it.near * 100) : null, // nejmenší vzdálenost ke kraji zóny (cm, záporné = uvnitř)
+      ns: +it.nearSpd.toFixed(2), // rychlost při přiblížení
+      np: +(it.nearPk || 0).toFixed(2), // špičková rychlost při přiblížení
+      nc: it.nearCos != null ? +it.nearCos.toFixed(2) : null, // směr úderu vs. očekávaný (cos)
+      w: it.wrongShown ? 1 : 0,
+      wk: it.weakShown ? 1 : 0,
+      d: it.dirShown ? 1 : 0,
+      tr: it.trkN ? +(it.trkOk / it.trkN).toFixed(2) : null, // podíl snímků se sledovanou rukou kolem úderu
+      ex: it.trkN ? +(it.trkEx / it.trkN).toFixed(2) : null,
+      ...extra,
+    };
+    this.rec.items.push(r);
+  }
+
+  // shrnutí důvodů minutí (pro výsledky)
+  missReasons() {
+    const out = { slabý: 0, 'druhá ruka': 0, směr: 0, 'ztráta sledování': 0, 'těsně vedle': 0, mimo: 0 };
+    if (!this.rec) return out;
+    for (const x of this.rec.items) {
+      if (x.r !== 'miss') continue;
+      if (x.wk) out['slabý']++;
+      else if (x.w) out['druhá ruka']++;
+      else if (x.d) out['směr']++;
+      else if (x.tr != null && x.tr < 0.6) out['ztráta sledování']++;
+      else if (x.n != null && x.n <= 6) out['těsně vedle']++;
+      else out.mimo++;
+    }
+    return out;
   }
 
   sens(type) {
@@ -113,6 +172,9 @@ export class Game {
       dirShown: false,
       near: 9,
       nearSpd: 0,
+      trkN: 0,
+      trkOk: 0,
+      trkEx: 0,
       practice: false,
       bump: 0,
       vis: null,
@@ -146,7 +208,7 @@ export class Game {
     else if (it.kind === 'b') off = D * a * u * 1.6;
     else {
       // po okamžiku úderu terč rychle zabrzdí (neproletí hráči hlavou)
-      const vEnd = (D * a) / this.flight, tau = 0.08, tt = -u * this.flight;
+      const vEnd = (D * a) / this.flight, tau = 0.035, tt = -u * this.flight;
       off = -vEnd * tau * (1 - Math.exp(-tt / tau));
     }
     const uu = Math.max(0, u);
@@ -186,6 +248,19 @@ export class Game {
       }
       this.spawn(e);
     }
+    if (this.rec && !this.practiceMode) {
+      for (const side of ['L', 'R']) {
+        const hh = side === 'L' ? hands.L : hands.R, rs = this.rec.trk[side];
+        rs.n++;
+        if (hh.fresh) rs.ok++;
+        else if (hh.extrap) rs.ex++;
+      }
+      this.recFpsT += dt;
+      if (this.recFpsT > 5) {
+        this.recFpsT = 0;
+        this.rec.fps.push(this.app.fps);
+      }
+    }
     const zone = this.zone();
     const RAD = GEO.targetR + GEO.fistR + zone.tol;
     const sq = zone.squash, sqSide = 1 + (zone.squash - 1) * 0.3;
@@ -193,6 +268,13 @@ export class Game {
       it.prevPos.copy(it.pos);
       this.posAt(it, t, it.pos);
       if (it.kind === 't') {
+        // kvalita sledování očekávané ruky kolem okamžiku úderu
+        if (it.state === 'fly' && Math.abs(t - it.tHit) < 0.35) {
+          const hh = it.side === 'L' ? hands.L : hands.R;
+          it.trkN++;
+          if (hh.fresh) it.trkOk++;
+          else if (hh.extrap) it.trkEx++;
+        }
         if (it.state === 'fly') {
           // zásah? (jen v rozumné blízkosti)
           if (it.pos.z > this.calib.cz - this.calib.hitDist - 0.75) {
@@ -210,9 +292,14 @@ export class Game {
               let s = dd > 1e-10 ? clamp(-_a.dot(_d) / dd, 0, 1) : 1;
               _p.copy(_a).addScaledVector(_d, s);
               const dist = _p.length();
-              if (h.side === it.side && dist - RAD < it.near) {
+              if ((h.side === it.side || it.side === 'B') && dist - RAD < it.near) {
                 it.near = dist - RAD;
                 it.nearSpd = Math.max(it.nearSpd, h.speed);
+                it.nearPk = Math.max(it.nearPk || 0, h.pk || 0);
+                const gd = GEO[it.type];
+                const pv = h.speed > 0.35 || !h.pk ? h.vel : h.pkVel;
+                const l = pv.length();
+                if (l > 0.3) it.nearCos = (pv.x * gd.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + pv.y * gd.dir[1] + pv.z * gd.dir[2]) / l;
               }
               if (dist > (it.type === 'finale' ? RAD + GEO.targetR * 0.7 : RAD)) continue;
               this.contact(it, h, t);
@@ -222,6 +309,12 @@ export class Game {
           if (it.state === 'fly' && !it.practice && t > it.tHit + JUDGE.late) this.miss(it);
         }
       } else if (it.state === 'fly') {
+        // zvuk průletu: vrchol zvuku přesně v okamžiku průletu kolem hlavy, ze strany, kde bariéra je
+        if (!it.flyPlayed && it.tHit - t <= 0.42 && app.audio) {
+          it.flyPlayed = true;
+          const b = BAR[it.type] || BAR.duck;
+          app.audio.play(b.kind === 'wall' ? 'flybyWall' : 'flyby', { pan: -Math.sin(b.ang) * 0.75, gain: b.kind === 'wall' ? 1 : 0.85 });
+        }
         // bariéra prochází rovinou hlavy
         const hz = head.z;
         if (it.prevPos.z < hz && it.pos.z >= hz) this.judgeBarrier(it, head);
@@ -251,7 +344,10 @@ export class Game {
 
   contact(it, h, t) {
     const app = this.app;
-    const spd = h.speed;
+    // rozhoduje švih (špička za posledních 120 ms), ne rychlost v okamžiku doteku, kdy pěst už brzdí
+    const spd = Math.max(h.speed, h.pk || 0);
+    // směr: z okamžiku doteku (hook je oblouk – ve špičce švihu míří pěst jinam); jen při téměř stojící ruce ze špičky
+    const vv = h.speed > 0.35 || !h.pk ? h.vel : h.pkVel;
     const sens = this.sens(it.type === 'finale' ? 'jab' : it.type);
     const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
     if (h.side !== it.side && it.side !== 'B') {
@@ -276,7 +372,7 @@ export class Game {
     }
     // směr úderu
     const g = GEO[it.type];
-    _d.copy(h.vel).normalize();
+    _d.copy(vv).normalize();
     const cos = _d.x * g.dir[0] * (it.type === 'hook' && it.side === 'L' ? -1 : 1) + _d.y * g.dir[1] + _d.z * g.dir[2];
     const dirOk = it.type === 'finale' || cos >= sens.cos;
     if (!dirOk && sens.lv === 1) {
@@ -329,6 +425,7 @@ export class Game {
     it.state = 'hit';
     it.t1 = t;
     this.log.push({ i: it.e.i, r: q, err, spd, dirOk });
+    this.recItem(it, q, { e: Math.round(err * 1000), s: +spd.toFixed(2), s0: +h.speed.toFixed(2), c: +cos.toFixed(2), x: h.extrap ? 1 : 0 });
     this.logAttempt({ nm, spd, res: (dirOk ? '' : 'jiný směr · ') + { perfect: 'perfektní', great: 'skvělé', good: 'dobré' }[q] });
     // efekty
     const col = it.side === 'L' ? C_L : C_R;
@@ -385,6 +482,7 @@ export class Game {
     this.misses++;
     this.breakCombo();
     this.log.push({ i: it.e.i, r: 'miss' });
+    this.recItem(it, 'miss');
     const app = this.app;
     if (!it.weakShown && !it.wrongShown && !it.dirShown) {
       const nm = PUNCH_NAMES[it.type] + ' ' + (it.side === 'L' ? 'L' : 'P');
@@ -401,7 +499,9 @@ export class Game {
     const b = BAR[it.type] || BAR.duck;
     const nx = -Math.sin(b.ang), ny = Math.cos(b.ang);
     // hlava musí být na volné straně hrany (aspoň 1,5 cm)
-    const ok = (head.x - it.hit.x) * nx + (head.y - it.hit.y) * ny < -0.015;
+    const marg = (head.x - it.hit.x) * nx + (head.y - it.hit.y) * ny;
+    const ok = marg < -0.015;
+    if (this.rec) this.rec.bars.push({ t: +it.tHit.toFixed(2), ty: it.type, ok: ok ? 1 : 0, m: Math.round(-marg * 100) });
     it.t1 = this.t;
     if (ok) {
       it.state = 'passed';
@@ -411,7 +511,7 @@ export class Game {
       this.mult = this.combo >= 50 ? 4 : this.combo >= 25 ? 3 : this.combo >= 10 ? 2 : 1;
       this.score += 50 * this.mult;
       this.duckLog.push(this.t);
-      app.audio && app.audio.play('whoosh', { gain: 0.8 });
+      app.audio && app.audio.play('dodgeOk', { gain: 0.5 });
       app.fx.text('dodge', _v.copy(head).add(_a.set(0, 0.35, -0.9)));
       this.milestone();
     } else {

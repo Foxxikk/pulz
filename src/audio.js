@@ -17,7 +17,34 @@ export class AudioSys {
     this.master.connect(this.comp).connect(c.destination);
     this.musicBus = c.createGain();
     this.musicBus.gain.value = 0.75;
-    this.musicBus.connect(this.master);
+    // mono zdroj rozmnožit do obou kanálů
+    this.musicBus.channelCount = 2;
+    this.musicBus.channelCountMode = 'explicit';
+    this.musicBus.channelInterpretation = 'speakers';
+    // hudba: „suchá“ (klasické stereo ve sluchátkách) + prostorová ze dvou reproduktorů ve scéně (HRTF)
+    this.musicDry = c.createGain();
+    this.musicWet = c.createGain();
+    this.musicBus.connect(this.musicDry).connect(this.master);
+    const split = c.createChannelSplitter(2);
+    this.musicBus.connect(split);
+    this.spk = [0, 1].map((ch) => {
+      const pn = c.createPanner();
+      pn.panningModel = 'HRTF';
+      pn.distanceModel = 'inverse';
+      pn.refDistance = 3;
+      pn.rolloffFactor = 0.5;
+      split.connect(pn, ch);
+      pn.connect(this.musicWet);
+      return pn;
+    });
+    this.musicWet.connect(this.master);
+    // malý prostor (odrazy) – zvuk „vyjde z hlavy“ ven
+    this.room = c.createConvolver();
+    this.room.buffer = impulse(c, 1.1, 3.4);
+    this.roomGain = c.createGain();
+    this.musicWet.connect(this.room).connect(this.roomGain).connect(this.master);
+    this.setSpeakers(0, 1.62, 0);
+    this.setSpatial(true);
     this.sfxBus = c.createGain();
     this.sfxBus.gain.value = 0.9;
     this.sfxBus.connect(this.master);
@@ -33,6 +60,81 @@ export class AudioSys {
     this.voices = [];
     this.song = null;
     this.sfxReady = this.renderSfx();
+  }
+
+  // prostorová hudba zap/vyp
+  setSpatial(on) {
+    const t = this.ctx.currentTime;
+    this.spatial = on;
+    this.musicDry.gain.setTargetAtTime(on ? 0.28 : 1, t, 0.05);
+    this.musicWet.gain.setTargetAtTime(on ? 1.15 : 0, t, 0.05);
+    this.roomGain.gain.setTargetAtTime(on ? 0.1 : 0, t, 0.05);
+  }
+  // reproduktory: vlevo a vpravo před hráčem, kousek nad hlavou
+  setSpeakers(cx, headH, cz) {
+    this.spkPos = [
+      [cx - 2.6, headH + 0.3, cz - 3.2],
+      [cx + 2.6, headH + 0.3, cz - 3.2],
+    ];
+    this.spk.forEach((pn, i) => {
+      const [x, y, z] = this.spkPos[i];
+      if (pn.positionX) {
+        pn.positionX.value = x;
+        pn.positionY.value = y;
+        pn.positionZ.value = z;
+      } else pn.setPosition(x, y, z);
+    });
+  }
+  // posluchač = hlava hráče (pozice, směr pohledu, nahoru)
+  setListener(px, py, pz, fx, fy, fz, ux, uy, uz) {
+    const l = this.ctx.listener;
+    if (l.positionX) {
+      l.positionX.value = px;
+      l.positionY.value = py;
+      l.positionZ.value = pz;
+      l.forwardX.value = fx;
+      l.forwardY.value = fy;
+      l.forwardZ.value = fz;
+      l.upX.value = ux;
+      l.upY.value = uy;
+      l.upZ.value = uz;
+    } else {
+      l.setPosition(px, py, pz);
+      l.setOrientation(fx, fy, fz, ux, uy, uz);
+    }
+  }
+
+  // klidná hudba po tréninku (smyčka z „break“ ranní trati)
+  async startLounge(track) {
+    if (this.lounge || this.song) return;
+    const key = track.id + ':break';
+    let buf = this.loops.get(key);
+    if (!buf) {
+      buf = await this.renderLoop(track, 'break');
+      this.loops.set(key, buf);
+    }
+    if (this.song || this.lounge) return;
+    const c = this.ctx;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.loopEnd = this.loopLen(track) / c.sampleRate;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.5, c.currentTime + 2.5);
+    src.connect(g).connect(this.musicBus);
+    src.start(c.currentTime + 0.05);
+    this.lounge = { src, g };
+  }
+  stopLounge(fade = 0.6) {
+    const l = this.lounge;
+    if (!l) return;
+    this.lounge = null;
+    const c = this.ctx;
+    l.g.gain.cancelScheduledValues(c.currentTime);
+    l.g.gain.setValueAtTime(Math.max(0.0001, l.g.gain.value), c.currentTime);
+    l.g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + fade);
+    setTimeout(() => { try { l.src.stop(); } catch (e) {} }, fade * 1000 + 80);
   }
 
   resume() {
@@ -251,6 +353,7 @@ export class AudioSys {
   // Sestaví časovou osu skladby (v dobách) a spustí přehrávání v čase `when`
   startSong(track, when) {
     this.stopSong();
+    this.stopLounge(0.3);
     const c = this.ctx;
     const loopSec = this.loopLen(track) / c.sampleRate;
     const segs = [];
@@ -271,6 +374,7 @@ export class AudioSys {
   // vlastní skladba (celý AudioBuffer)
   startBuffer(buffer, when) {
     this.stopSong();
+    this.stopLounge(0.3);
     const c = this.ctx;
     const gain = c.createGain();
     gain.gain.value = 0.95;
@@ -394,13 +498,15 @@ export class AudioSys {
     const sr = this.ctx.sampleRate;
     const defs = {
       // zásah = buben (hodí se k téměř každé hudbě); výšku mění ruka přes playbackRate
-      // zásah = buben (tom); výšku mění ruka přes playbackRate
-      hit: [0.7, (k, d) => {
-        k.tom(0, 118, 0.42, 0.9, d, { stick: 4300, stickV: 0.6, shellV: 0.4, sub: 62, subV: 0.55, room: 0.16, roomLen: 0.45 });
+      // zásah = pořádný basový „punch“ (808) + tom s paličkou; výšku mění ruka přes playbackRate
+      hit: [0.75, (k, d) => {
+        k.boom(0, 0.95, d, { f0: 55, dur: 0.5, drive: 3.5, sat: 0.6 });
+        k.tom(0, 150, 0.32, 0.55, d, { stick: 4300, stickV: 0.7, shellV: 0.35, room: 0.12, roomLen: 0.4 });
       }],
-      // hook / zvedák = velký kotel (taiko) s hlubokým „buch“
-      hitBig: [0.95, (k, d) => {
-        k.tom(0, 82, 0.6, 0.95, d, { stick: 3200, stickV: 0.75, shellV: 0.5, sub: 48, subV: 0.9, bend: 1.6, drive: 2.8, room: 0.2, roomLen: 0.6 });
+      // hook / zvedák = hlubší a delší bas + velký kotel
+      hitBig: [1.0, (k, d) => {
+        k.boom(0, 1.0, d, { f0: 44, dur: 0.75, drive: 4.5, sat: 0.75 });
+        k.tom(0, 96, 0.5, 0.6, d, { stick: 3200, stickV: 0.8, shellV: 0.45, bend: 1.6, drive: 2.8, room: 0.18, roomLen: 0.6 });
       }],
       perfect: [0.3, (k, d) => {
         k.snare(0, 0.3, d);
@@ -415,6 +521,18 @@ export class AudioSys {
       miss: [0.45, (k, d) => {
         k.noiseBurst(0, 0.32, 0.25, 'bandpass', 1300, 1.2, d, 280);
         k.tone(0, 330, 0.25, 0.08, 'sine', d, 180);
+      }],
+      // průlet půlkruhu kolem hlavy (vrchol zvuku = okamžik průletu, 0,42 s)
+      flyby: [0.9, (k, d) => {
+        k.flyby(0, 0.8, d, { f0: 300, f1: 2400, f2: 380, q: 1.4, hum: 95 });
+      }],
+      // průlet zdi: těžší, hlubší „vžum“
+      flybyWall: [1.0, (k, d) => {
+        k.flyby(0, 0.9, d, { f0: 180, f1: 1300, f2: 220, q: 0.9, hum: 62, dur: 0.95 });
+        k.noiseBurst(0.38, 0.35, 0.35, 'lowpass', 500, 0.7, d, 150);
+      }],
+      dodgeOk: [0.2, (k, d) => {
+        k.noiseBurst(0, 0.12, 0.35, 'highpass', 5000, 0.7, d);
       }],
       whoosh: [0.6, (k, d) => {
         k.noiseBurst(0, 0.5, 0.45, 'bandpass', 380, 1.8, d, 2600);

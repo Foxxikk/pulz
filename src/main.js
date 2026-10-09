@@ -14,7 +14,7 @@ import { buildChart, buildChartFromAnalysis } from './chart.js';
 import { savedPin, rememberPin, listSongs, uploadSong, deleteSong, fetchSong, cacheSong } from './library.js';
 import { store, clamp, track as va } from './util.js';
 
-const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _fwd = new THREE.Vector3();
+const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _fwd = new THREE.Vector3(), _lf = new THREE.Vector3(), _lu = new THREE.Vector3();
 const PARAMS = new URLSearchParams(location.search);
 
 class App {
@@ -33,6 +33,7 @@ class App {
     this.hurt = 0;
     this.comboPop = 0;
     this.libPin = savedPin();
+    this.spkInit = false;
     this.libSongs = null;
     this.libStatus = '';
     this.libPage = 0;
@@ -453,6 +454,7 @@ class App {
   ensureAudio() {
     if (!this.audio) {
       this.audio = new AudioSys();
+      this.audio.setSpatial(this.settings.spatial !== false);
       this.applyAmbient();
       if (this.env.video) this.attachVideoSound(this.env.video);
     }
@@ -792,8 +794,21 @@ class App {
     return Math.exp(-ph * 9);
   }
 
+  // odeslat záznam tréninku pro analýzu detekce (ukázka s botem se neposílá)
+  uploadRec(g, r, done) {
+    const rec = g.rec;
+    if (!rec || this.demo || this.mode !== 'vr' || rec.items.length < 8) return;
+    rec.result = { done: !!done, score: r.score, acc: +r.acc.toFixed(3), grade: r.grade, hits: r.hits, misses: r.misses, t: +g.t.toFixed(1), reasons: r.reasons };
+    try {
+      fetch('/api/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rec), keepalive: rec.items.length < 600 }).catch(() => {});
+    } catch (e) {}
+    g.rec = null;
+  }
+
   setupHud() {
     const c = this.calibData;
+    if (this.audio) this.audio.setSpeakers(c.cx, c.headH, c.cz);
+    this.env.setSpeakers && this.env.setSpeakers(c.cx, c.headH, c.cz);
     this.dispScore = 0;
     this.lastComboShown = 0;
     // HUD
@@ -830,9 +845,14 @@ class App {
       store.set('pulz.records', this.records);
     }
     this.lastResult = r;
+    r.reasons = g.missReasons();
+    this.uploadRec(g, r, done);
     if (this.audio) {
       this.audio.stopSong(done ? 0.8 : 0.3);
       if (done) this.sfx('finish');
+      // klidná hudba v pozadí po tréninku
+      const au = this.audio;
+      setTimeout(() => { if (this.screen === 'results' || this.screen === 'menu') au.startLounge(TRACKS.find((t) => t.id === 'rano')); }, done ? 2200 : 600);
     }
     for (const it of g.items) it.state = 'gone';
     g.items.forEach((it) => g.releaseItem(it));
@@ -945,6 +965,9 @@ class App {
     else if (id === 'back') {
       this.stopPractice();
       this.showMenu();
+    } else if (id === 'spatial') {
+      S.spatial = !S.spatial;
+      if (this.audio) this.audio.setSpatial(S.spatial);
     } else if (id === 'barmode') {
       const order = ['all', 'duck', 'off'];
       S.barriers = order[(order.indexOf(S.barriers || 'all') + 1) % 3];
@@ -1152,7 +1175,18 @@ class App {
     this.hurtMesh.position.copy(this.head);
     this.hurtMesh.material.opacity = this.hurt * 0.35;
 
-    this.env.beat = this.screen === 'play' ? this.beatPulse : 0;
+    if (!this.spkInit && this.env.setSpeakers) {
+      this.spkInit = true;
+      this.env.setSpeakers(0, 1.62, 0);
+    }
+    if (this.audio) {
+      const hp = this.mode === 'vr' ? this.head : this.camera.position;
+      const hq = this.mode === 'vr' ? this.headQ : this.camera.quaternion;
+      _lf.set(0, 0, -1).applyQuaternion(hq);
+      _lu.set(0, 1, 0).applyQuaternion(hq);
+      this.audio.setListener(hp.x, hp.y, hp.z, _lf.x, _lf.y, _lf.z, _lu.x, _lu.y, _lu.z);
+    }
+    this.env.beat = this.screen === 'play' ? this.beatPulse : this.audio && this.audio.lounge ? 0.25 + 0.25 * Math.sin(now * 4.4) : 0;
     this.env.playing = this.screen === 'play';
     this.env.streamMat.uniforms.uPx.value = this.renderer.domElement.height;
     this.env.update(dt);
