@@ -17,6 +17,10 @@ Rytmická boxovací fitness hra ve WebXR. Stojíš na plošině uprostřed tyrky
 
 Na PC: **Ukázka na PC** – hraje bot, tažením myši se rozhlížíš, mezerník = pauza.
 
+## Novinky v10.1 – editor choreografie
+- **Jen boxerské údery**: úder se zapíše, jen když pěst vyrazí z gardy (před obličejem) aspoň o 20 cm se švihem ≥ 2,2 m/s. Druh se určí podle natočení hráče (direkt dopředu od těla, hook ze strany dovnitř, zvedák zespodu nahoru). Mávnutí, spuštění rukou, stažení ruky k tělu nebo třesení se ignorují; při ztrátě sledování ruky se nic nezapisuje.
+- **Úhyb = překážka**: hra sleduje odchylku hlavy od neutrální polohy (ta se průběžně dolaďuje). Podřep nebo úklon se zapíše jako půlkruh natočený přesně podle směru úhybu (po 22,5°), oblouk hlavou vytvoří spirálu, úkrok do strany bez naklonění hlavy vytvoří zeď. Zaznamenaná překážka se hned ukáže před tebou a zasviští.
+
 ## Novinky v10
 - **Režimy** (v menu řádek „Režim“): *Trénink*, *Bez chyby* (první minutý terč, náraz do překážky nebo bomba = konec; výsledek ukáže, kolik skladby jsi zvládl), *Vytrvalost* (všechny skladby za sebou, mezi nimi 9 s pauza s odpočtem, celkový součet bodů, kalorií a času), *Nahrát choreo*.
 - **Editor choreografie**: zvol skladbu a režim „Nahrát choreo“ → hraje hudba bez terčů, ty boxuješ a hra zaznamená každý úder (druh podle směru, ruku, místo), podřepy a úklony; časy zarovná na půldoby. Pak se skladba hraje s tvou choreografií (v menu přepínač „Moje choreografie: ZAP/VYP“).

@@ -31,7 +31,7 @@ const sim = (mode, opts = {}) => page.evaluate(async ([mode, opts]) => {
   }
   if (app.screen === 'play') app.finish(!!opts.forceDone);
   const r = app.lastResult;
-  return { screen: app.screen, t: +t.toFixed(1), mode: r.mode, failed: r.failed, progress: r.progress && +r.progress.toFixed(2), endurance: r.endurance && { idx: r.endurance.idx, n: r.endurance.n, next: r.endurance.next }, endT: app.endT, tip: r.tip, finished: r.finished };
+  return { screen: app.screen, t: +t.toFixed(1), hits: r.hits, misses: r.misses, bars: r.barriersOk + '/' + r.barriersTotal, mode: r.mode, failed: r.failed, progress: r.progress && +r.progress.toFixed(2), endurance: r.endurance && { idx: r.endurance.idx, n: r.endurance.n, next: r.endurance.next }, endT: app.endT, tip: r.tip, finished: r.finished };
 }, [mode, opts]);
 
 console.log('perfect', JSON.stringify(await sim('perfect', { missRate: 0.15 })));
@@ -40,34 +40,18 @@ await page.evaluate(() => { const a = window.__app; a.panels.results.key = null;
 await page.screenshot({ path: OUT + '/endurance.png' });
 console.log('endurance next', await page.evaluate(() => { const a = window.__app; a.enduranceNext(); return [a.screen, a.currentTrack.name, a.run.idx]; }));
 
-// choreografie: syntetické údery do Recorderu
+// choreografie: uložená (údery + spirála + zeď) → hra
 console.log('choreo', await page.evaluate(async () => {
-  const app = window.__app;
-  const { Recorder, beatMap, chartFromChoreo, saveChoreo, loadChoreo } = await import('/src/choreo.js');
+  const { saveChoreo, loadChoreo, chartFromChoreo } = await import('/src/choreo.js');
   const { TRACKS } = await import('/src/config.js');
   const tr = TRACKS.find((t) => t.id === 'mesto');
-  const spb = 60 / tr.bpm;
-  const calib = { headH: 1.62, cx: 0, cz: 0, hitDist: 0.5 };
-  const rec = new Recorder(calib, beatMap(tr, spb));
-  const mk = (side) => ({ valid: true, speed: 0, vel: { x: 0, y: 0, z: 0, lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; } }, pkVel: { x: 0, y: 0, z: -1 }, fist: { x: side === 'L' ? -0.2 : 0.2, y: 1.4, z: -0.4 } });
-  const H = { L: mk('L'), R: mk('R'), get(s) { return this[s]; } };
-  const head = { x: 0, y: 1.62, z: 0 };
-  let n = 0;
-  for (let t = 4; t < 30; t += 1 / 72) {
-    const b = t / spb, ph = b % 1; // úder každou dobu, střídavě; typ podle doby
-    const side = Math.floor(b) % 2 ? 'R' : 'L', other = side === 'L' ? 'R' : 'L';
-    const sp = ph < 0.25 ? Math.sin((ph / 0.25) * Math.PI) * 4 : 0;
-    const kind = Math.floor(b / 8) % 3; // jab / hook / upper
-    H[side].speed = sp; H[side].vel.x = kind === 1 ? -sp : 0; H[side].vel.y = kind === 2 ? sp : 0; H[side].vel.z = kind === 0 ? -sp : 0;
-    H[other].speed = 0; H[other].vel.x = H[other].vel.y = H[other].vel.z = 0;
-    head.y = Math.floor(b) % 16 === 12 ? 1.4 : 1.62;
-    rec.update(t, H, head);
-  }
-  const ev = rec.events;
+  const ev = [];
+  for (let b = 8; b < 56; b += 1) ev.push({ kind: 't', type: ['jab', 'hook', 'upper'][Math.floor(b / 8) % 3], hand: b % 2 ? 'R' : 'L', beat: b, px: b % 2 ? 0.2 : -0.2, py: -0.2 });
+  for (let k = 0; k < 9; k++) ev.push({ kind: 'b', type: 'arc', ang: -Math.PI / 2 + k * Math.PI / 8, beat: 58 + k * 0.5 });
+  ev.push({ kind: 'b', type: 'wallL', beat: 66 });
   saveChoreo(tr, { events: ev, created: Date.now() });
-  const ch = chartFromChoreo(loadChoreo(tr), tr, spb, 170);
-  const types = {}; for (const e of ev) types[e.type] = (types[e.type] || 0) + 1;
-  return JSON.stringify({ n: ev.length, types, onGrid: ev.every((e) => Math.abs(e.beat * 2 - Math.round(e.beat * 2)) < 1e-6), chartTargets: ch.targets, chartBars: ch.barriers });
+  const ch = chartFromChoreo(loadChoreo(tr), tr, 60 / tr.bpm, 170);
+  return JSON.stringify({ targets: ch.targets, bars: ch.barriers });
 }));
 // hra s nahranou choreografií
 console.log('play choreo', JSON.stringify(await sim('train', { maxT: 35 })));

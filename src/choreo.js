@@ -1,4 +1,5 @@
 // Editor choreografie: záznam vlastních úderů na skladbu, zarovnání na doby, uložení a přehrání jako trénink.
+import * as THREE from 'three';
 import { GEO } from './config.js';
 import { store } from './util.js';
 import { addFinale } from './chart.js';
@@ -45,64 +46,108 @@ export function beatMap(track, spb) {
 }
 
 // záznam: detekce úderů a úhybů během hraní skladby
+// Údery: jen boxerské – pěst vyrazí z gardy pryč od hlavy (≥ 20 cm), švih ≥ 2,2 m/s, druh podle natočení hráče.
+// Úhyby: odchylka hlavy od neutrální polohy → půlkruh natočený podle směru (oblouk hlavou = spirála),
+//        posun celého těla bez naklonění hlavy → zeď.
+const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Euler();
+const STEP = Math.PI / 8;
+
 export class Recorder {
   constructor(calib, map) {
     this.calib = calib;
     this.map = map;
     this.events = [];
-    this.last = { L: -9, R: -9, body: -9 };
-    this.arm = { L: true, R: true };
-    this.prevPk = { L: 0, R: 0 };
+    this.last = { L: -9, R: -9 };
+    this.arm = { L: false, R: false };
+    this.pk = { L: 0, R: 0 };
+    this.p0 = { L: new THREE.Vector3(), R: new THREE.Vector3() };
+    this.base = null; // neutrální poloha hlavy (průběžně se doladí)
+    this.dodge = null; // probíhající úhyb
   }
+
   // vrací zaznamenanou událost (pro efekt) nebo null
-  update(t, hands, head) {
+  update(t, hands, head, headQ, dt = 1 / 72) {
     let out = null;
+    // směr pohledu (jen vodorovně) a vpravo
+    _e.setFromQuaternion(headQ || new THREE.Quaternion(), 'YXZ');
+    const yaw = _e.y, roll = _e.z;
+    _f.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    _r.set(Math.cos(yaw), 0, -Math.sin(yaw));
     for (const side of ['L', 'R']) {
       const h = hands.get(side);
-      if (!h.valid) continue;
+      if (!h.valid || h.extrap) {
+        this.arm[side] = false;
+        continue;
+      }
       const s = h.speed;
-      // úder = švih nad 1,6 m/s; zapíše se, když rychlost po vrcholu klesne (pěst je natažená)
-      if (this.arm[side]) {
-        this.prevPk[side] = Math.max(this.prevPk[side], s);
-        const pk = this.prevPk[side];
-        if (pk > 1.6 && s < pk * 0.85 && t - this.last[side] > 0.22) {
-          const v = h.vel.lengthSq() > 0.01 ? h.vel : h.pkVel;
-          const ax = Math.abs(v.x), ay = Math.abs(v.y), az = Math.abs(v.z);
-          let type = 'jab';
-          if (ay > az * 1.1 && v.y > 0 && ay > ax) type = 'upper';
-          else if (ax > az * 1.1 && ax > ay) type = 'hook';
-          const c = this.calib;
-          const b = Math.round(this.map.beatOf(t + 0.03) * 2) / 2;
-          // stejná ruka na stejné půldobě jen jednou
-          if (!this.events.some((e) => e.kind === 't' && e.hand === side && e.beat === b)) {
-            const e = { kind: 't', type, hand: side, beat: b, px: +Math.max(-0.45, Math.min(0.45, h.fist.x - c.cx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
-            this.events.push(e);
-            out = e;
-          }
-          this.last[side] = t;
-          this.arm[side] = false;
+      if (!this.arm[side]) {
+        // znovu připravit až v klidu (ruka v gardě)
+        if (s < 0.8) {
+          this.arm[side] = true;
+          this.pk[side] = 0;
+          this.p0[side].copy(h.fist);
         }
-      } else if (s < 0.9) {
-        this.arm[side] = true;
-        this.prevPk[side] = 0;
+        continue;
       }
-    }
-    // podřep / úklon → bariéra
-    const c = this.calib;
-    if (t - this.last.body > 0.9) {
-      const dy = head.y - c.headH, dx = head.x - c.cx;
-      let type = null;
-      if (dy < -0.16) type = dx < -0.1 ? 'duckL' : dx > 0.1 ? 'duckR' : 'duck';
-      else if (dx < -0.14) type = 'leanL';
-      else if (dx > 0.14) type = 'leanR';
-      if (type) {
+      if (s < 0.8) this.p0[side].copy(h.fist); // garda se může posouvat
+      this.pk[side] = Math.max(this.pk[side], s);
+      const pk = this.pk[side];
+      if (pk >= 2.2 && s < pk * 0.8 && t - this.last[side] > 0.3) {
+        _d.subVectors(h.fist, this.p0[side]);
+        const len = _d.length();
+        this.arm[side] = false;
+        // úder musí začít z gardy (pěst před obličejem, ne u boku) a urazit aspoň 20 cm
+        const g0 = this.p0[side];
+        const fromGuard = g0.y > head.y - 0.55 && g0.distanceTo(head) < 0.6;
+        if (len < 0.2 || !fromGuard) continue; // nebyl to úder (mávnutí, posun, ruce dole)
+        const fw = _d.dot(_f), lat = _d.dot(_r), up = _d.y;
+        const inward = side === 'L' ? lat : -lat;
+        let type = null;
+        if (up > 0.16 && up > Math.abs(fw) * 0.9 && up > Math.abs(lat)) type = 'upper';
+        else if (inward > 0.14 && inward > fw * 0.8 && inward > Math.abs(up)) type = 'hook';
+        else if (fw > 0.15 && fw > Math.abs(lat) * 0.8 && h.fist.distanceTo(head) - g0.distanceTo(head) > 0.1) type = 'jab';
+        if (!type) continue;
+        const c = this.calib;
         const b = Math.round(this.map.beatOf(t) * 2) / 2;
-        const e = { kind: 'b', type, beat: b };
-        this.events.push(e);
-        this.last.body = t;
-        out = out || e;
+        this.last[side] = t;
+        if (!this.events.some((e) => e.kind === 't' && e.hand === side && e.beat === b)) {
+          const e = { kind: 't', type, hand: side, beat: b, px: +Math.max(-0.45, Math.min(0.45, h.fist.x - c.cx)).toFixed(3), py: +Math.max(-0.6, Math.min(0.2, h.fist.y - c.headH)).toFixed(3) };
+          this.events.push(e);
+          out = e;
+        }
       }
     }
+    // ---- úhyby ----
+    if (!this.base) this.base = head.clone();
+    const dx = (head.x - this.base.x) * _r.x + (head.z - this.base.z) * _r.z; // vpravo +
+    const dy = head.y - this.base.y;
+    const dev = Math.hypot(dx, dy);
+    if (dev < 0.07 && !this.dodge) {
+      // neutrál se pomalu přizpůsobí (hráč se může posunout)
+      this.base.lerp(head, Math.min(1, dt * 0.6));
+    }
+    const rollDeg = Math.abs(roll) * 57.3;
+    const b = Math.round(this.map.beatOf(t) * 2) / 2;
+    if (dev >= 0.15) {
+      // směr úhybu → natočení půlkruhu (překážka je na opačné straně, než kam ses pohnul)
+      let ang = Math.atan2(dx, -dy);
+      ang = Math.round(ang / STEP) * STEP;
+      ang = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, ang));
+      // posun do strany bez naklonění hlavy a bez podřepu = úkrok → zeď
+      const step = Math.abs(dx) > 0.22 && dy > -0.1 && rollDeg < 9;
+      const d = this.dodge;
+      const changed = !d || (step ? d.kind !== 'wall' : Math.abs(ang - d.ang) >= STEP - 1e-6);
+      if (changed && (!d || b - d.beat >= 0.5)) {
+        let e;
+        if (step) e = { kind: 'b', type: dx > 0 ? 'wallL' : 'wallR', beat: b };
+        else e = { kind: 'b', type: 'arc', ang: +ang.toFixed(4), beat: b };
+        if (!this.events.some((x) => x.kind === 'b' && Math.abs(x.beat - b) < 0.25)) {
+          this.events.push(e);
+          out = out || e;
+        }
+        this.dodge = { kind: step ? 'wall' : 'arc', ang, beat: b };
+      }
+    } else if (dev < 0.09) this.dodge = null; // návrat do neutrálu → další úhyb je nová překážka
     return out;
   }
 }

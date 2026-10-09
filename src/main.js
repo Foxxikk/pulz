@@ -1169,6 +1169,27 @@ class App {
     if (this.settings.warmup !== false && this.mode === 'vr' && this.startWarmup) return this.startWarmup(() => this.startCalib());
     this.startCalib();
   }
+  // krátký náhled zaznamenané překážky před hráčem
+  showGhostBarrier(ev) {
+    const g = this.game, c = this.calibData;
+    const e = { kind: 'b', type: ev.type, ang: ev.ang, t: g.t, i: -1 };
+    const it = { e, vis: this.targets.getBarrier(ev.type, ev.type === 'arc' ? ev.ang : undefined), hit: g.hitPos(e, new THREE.Vector3()) };
+    it.vis.g.position.copy(it.hit).add(_w.set(0, 0, -1.6));
+    this.ghosts = this.ghosts || [];
+    this.ghosts.push({ vis: it.vis, t: 0 });
+  }
+  updateGhosts(dt) {
+    if (!this.ghosts || !this.ghosts.length) return;
+    for (const gh of this.ghosts) {
+      gh.t += dt;
+      const k = gh.t / 0.8;
+      gh.vis.g.position.z -= dt * 2.5;
+      this.targets.barrierLook(gh.vis, Math.max(0, 0.8 * (1 - k)), false);
+      if (k >= 1) this.targets.releaseBarrier(gh.vis);
+    }
+    this.ghosts = this.ghosts.filter((x) => x.t < 0.8);
+  }
+
   choreoFor(track) {
     const c = loadChoreo(track);
     return c && c.events.length >= 8 ? c : null;
@@ -1571,7 +1592,7 @@ class App {
       if (!simulated) this.game.update(t, dt, this.hands, this.head);
       this.coach.update(this.game, t);
       if (this.recorder) {
-        const ev = this.recorder.update(t, this.hands, this.head);
+        const ev = this.recorder.update(t, this.hands, this.head, this.mode === 'vr' ? this.headQ : this.camera.quaternion, dt);
         if (ev) {
           const c = this.calibData;
           if (ev.kind === 't') {
@@ -1579,7 +1600,13 @@ class App {
             this.fx.burst(f, ev.hand === 'L' ? new THREE.Color(COL.L) : new THREE.Color(COL.R), _v.set(0, 0, -1), 0.4, false, ev.type !== 'jab');
             this.audio.play(ev.type === 'jab' ? 'hit' : 'hitBig', { gain: 0.6, rate: ev.hand === 'L' ? 1.07 : 0.95 });
             this.fx.text(null, _v.copy(f).add(_w.set(0, 0.15, 0)), { jab: 'Direkt', hook: 'Hook', upper: 'Zvedák' }[ev.type], '#ffffff', 'score');
-          } else this.fx.text(null, _v.set(c.cx, c.headH + 0.3, c.cz - 1.2), { duck: 'Podřep', duckL: 'Podřep vlevo', duckR: 'Podřep vpravo', leanL: 'Úklon vlevo', leanR: 'Úklon vpravo' }[ev.type], '#ffd36a', 'score');
+          } else {
+            // ukázat zaznamenanou překážku: krátce probleskne půlkruh / zeď v daném natočení
+            const nm = ev.type === 'wallL' ? 'Zeď vlevo' : ev.type === 'wallR' ? 'Zeď vpravo' : Math.abs(ev.ang) < 0.2 ? 'Podřep' : Math.abs(ev.ang) > 1.4 ? (ev.ang < 0 ? 'Úklon vlevo' : 'Úklon vpravo') : ev.ang < 0 ? 'Podřep vlevo' : 'Podřep vpravo';
+            this.fx.text(null, _v.set(c.cx, c.headH + 0.35, c.cz - 1.2), 'Překážka: ' + nm, '#ffd36a', 'score');
+            this.showGhostBarrier(ev);
+            this.audio.play(ev.type.startsWith('wall') ? 'flybyWall' : 'flyby', { gain: 0.5 });
+          }
         }
       }
       // odpočet v prvních dvou taktech
@@ -1626,6 +1653,7 @@ class App {
     if (this.screen === 'pause') this.panels.pause.refresh('p' + this.game.score);
     if (this.screen === 'stats') this.panels.stats.refresh('s');
     if (this.screen === 'warmup') this.updateWarm(dt);
+    this.updateGhosts(dt);
     if (this.screen === 'library') this.panels.lib.refresh([this.libPin ? 1 : 0, this.libKeypad ? 1 : 0, this.pinEntry, this.libStatus, this.libPage, this.libSongs ? this.libSongs.length : -1, this.localSongs.length, this.customTrack ? this.customTrack.localId + this.customTrack.libUrl : ''].join('|'));
     if (this.screen === 'results' && this.endT != null) {
       this.endT -= dt;
